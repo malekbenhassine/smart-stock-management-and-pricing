@@ -1,0 +1,15 @@
+{
+  "trained_at_utc": "20260304_100503",
+  "horizon_weeks": 4,
+  "artifacts": {
+    "demand": "demand_weekly_20260304_100503.joblib",
+    "price_rules": "price_rules_20260304_100503.joblib",
+    "restock_rules": "restock_rules_20260304_100503.joblib",
+    "anomaly_rules": "anomaly_rules_20260304_100503.joblib"
+  },
+  "counts": {
+    "products": 200,
+    "sales_rows": 5000,
+    "competitor_prices_rows": 6000
+  }
+}

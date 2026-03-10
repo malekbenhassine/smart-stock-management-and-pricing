@@ -1,0 +1,26 @@
+{
+  "security": {
+    "max_failed_attempts": 5,
+    "lockout_minutes": 15,
+    "activation_link_expiry_hours": 24,
+    "password_policy": {
+      "min_length": 8,
+      "require_upper": true,
+      "require_digit": true
+    }
+  },
+  "alerts": {
+    "stock_low_lead_time_days": 7,
+    "overstock_ratio_vs_max": 1.15,
+    "untreated_critical_delay_hours": 24,
+    "priorities": [
+      "LOW",
+      "MEDIUM",
+      "HIGH",
+      "CRITICAL"
+    ]
+  },
+  "competitor_collection": {
+    "fallback_to_internal_if_missing": true
+  }
+}

@@ -1,0 +1,31 @@
+user_id,full_name,email,phone,role,is_active,created_at,activated_at,must_set_password,failed_attempts,locked_until
+1,Amina Ben Salah,amina.ben.salah@example.tn,+216 17550026,USER,True,2026-01-03,2026-01-07,True,4,
+2,Youssef Trabelsi,youssef.trabelsi@example.tn,+216 71422713,RESP_PRICING,True,2024-10-26,2024-11-04,False,2,
+3,Sana Gharbi,sana.gharbi@example.tn,+216 35868570,USER,True,2025-12-15,2025-12-22,False,2,
+4,Mohamed Ayari,mohamed.ayari@example.tn,+216 81367606,USER,True,2025-06-04,2025-06-05,False,1,
+5,Rim Bouzid,rim.bouzid@example.tn,+216 56872032,RESP_STOCK,False,2025-01-05,2025-01-09,False,4,
+6,Houssem Ben Ali,houssem.ben.ali@example.tn,+216 94225258,USER,True,2025-03-12,2025-03-15,False,1,
+7,Ines Jaziri,ines.jaziri@example.tn,+216 81165354,USER,True,2025-09-09,2025-09-17,False,4,
+8,Kais Haddad,kais.haddad@example.tn,+216 52614498,USER,True,2026-01-17,2026-01-27,False,4,2026-01-30T19:15:00
+9,Marwa Kammoun,marwa.kammoun@example.tn,+216 66175750,USER,True,2024-08-27,2024-08-28,False,0,
+10,Omar Ben Ammar,omar.ben.ammar@example.tn,+216 50789516,RESP_STOCK,True,2025-01-22,,False,1,
+11,Fatma Ben Romdhane,fatma.ben.romdhane@example.tn,+216 76736384,RESP_STOCK,False,2024-05-17,2024-05-23,False,0,
+12,Bilel Khelifi,bilel.khelifi@example.tn,+216 06298026,RESP_PRICING,True,2024-06-05,2024-06-13,False,1,2026-02-16T15:15:00
+13,Salma Ben Saad,salma.ben.saad@example.tn,+216 81044476,USER,True,2024-06-23,,False,0,
+14,Nour El Houda,nour.el.houda@example.tn,+216 44229485,ADMIN,True,2025-02-15,2025-02-16,False,4,
+15,Ahmed Ben Yedder,ahmed.ben.yedder@example.tn,+216 24039274,USER,True,2025-10-25,2025-10-28,False,4,
+16,Imen Sassi,imen.sassi@example.tn,+216 07030495,USER,True,2024-09-17,2024-09-19,False,4,
+17,Wael Chelly,wael.chelly@example.tn,+216 21825645,ADMIN,True,2025-07-22,2025-07-23,False,2,
+18,Sarra Ben Youssef,sarra.ben.youssef@example.tn,+216 64990650,RESP_STOCK,True,2025-03-13,2025-03-16,True,4,
+19,Hiba Louati,hiba.louati@example.tn,+216 18769608,RESP_STOCK,True,2025-02-05,2025-02-06,False,0,
+20,Anis Mezni,anis.mezni@example.tn,+216 52672624,USER,True,2025-09-13,,True,0,
+21,Lina Abid,lina.abid@example.tn,+216 19147519,ADMIN,True,2024-11-21,2024-11-25,False,1,
+22,Seifeddine Ben Said,seifeddine.ben.said@example.tn,+216 03990366,USER,True,2025-01-15,2025-01-24,False,4,2026-01-21T04:15:00
+23,Meriem Dhibi,meriem.dhibi@example.tn,+216 21714197,USER,True,2024-12-08,2024-12-17,False,1,
+24,Aziz Guesmi,aziz.guesmi@example.tn,+216 28437201,RESP_STOCK,True,2025-10-10,2025-10-16,False,0,
+25,Hatem Ben Othman,hatem.ben.othman@example.tn,+216 95919192,USER,True,2025-04-18,2025-04-23,False,3,
+26,Yasmin Kefi,yasmin.kefi@example.tn,+216 35270957,RESP_PRICING,True,2025-03-13,2025-03-19,False,1,2025-11-30T10:15:00
+27,Malek Zribi,malek.zribi@example.tn,+216 61956365,RESP_PRICING,False,2025-11-18,2025-11-28,False,3,
+28,Skander Trabelsi,skander.trabelsi@example.tn,+216 83276346,USER,True,2025-08-03,2025-08-12,False,1,2026-01-22T20:15:00
+29,Asma Ben Hamida,asma.ben.hamida@example.tn,+216 09238109,USER,True,2025-04-13,2025-04-21,False,0,
+30,Fares Mhiri,fares.mhiri@example.tn,+216 42607714,MANAGER,True,2024-04-24,2024-05-03,False,4,2025-12-19T12:15:00

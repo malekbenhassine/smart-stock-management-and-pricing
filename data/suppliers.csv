@@ -1,0 +1,41 @@
+supplier_id,name,email,phone,city,is_active
+1,Sahara Imports 93,contact1@supplier.tn,+216 35939932,Tunis,True
+2,Medina Wholesale 38,contact2@supplier.tn,+216 52637048,Bizerte,True
+3,Medina Wholesale 71,contact3@supplier.tn,+216 90645619,Gabes,True
+4,Tozeur Tech 14,contact4@supplier.tn,+216 60003587,Tunis,True
+5,Tunisia Tech Distribution 3,contact5@supplier.tn,+216 69962647,Monastir,True
+6,Atlas Provisions 82,contact6@supplier.tn,+216 49153161,Kairouan,False
+7,Tozeur Tech 21,contact7@supplier.tn,+216 30814752,Kairouan,True
+8,Nabeul Stationery 46,contact8@supplier.tn,+216 24844943,Kairouan,True
+9,Bizerte Network House 27,contact9@supplier.tn,+216 27597734,Kairouan,True
+10,Blue Gulf Trading 28,contact10@supplier.tn,+216 34549984,Nabeul,True
+11,Bizerte Network House 21,contact11@supplier.tn,+216 69490251,Sousse,True
+12,Djerba Trade Hub 26,contact12@supplier.tn,+216 13277467,Tunis,True
+13,Gabes Industrial 9,contact13@supplier.tn,+216 00808392,Sousse,False
+14,Blue Gulf Trading 9,contact14@supplier.tn,+216 39584721,Sousse,True
+15,Medina Wholesale 21,contact15@supplier.tn,+216 45615496,Nabeul,False
+16,Nabeul Stationery 19,contact16@supplier.tn,+216 90084475,Gabes,True
+17,Djerba Trade Hub 74,contact17@supplier.tn,+216 18995898,Sfax,True
+18,Djerba Trade Hub 39,contact18@supplier.tn,+216 69199162,Sfax,True
+19,Gabes Industrial 64,contact19@supplier.tn,+216 08418125,Tunis,True
+20,Tozeur Tech 22,contact20@supplier.tn,+216 02344077,Monastir,True
+21,Atlas Provisions 71,contact21@supplier.tn,+216 08905314,Kairouan,True
+22,Nabeul Stationery 35,contact22@supplier.tn,+216 63887439,Bizerte,True
+23,Sfax Office Market 37,contact23@supplier.tn,+216 29906351,Sousse,True
+24,Tunisia Tech Distribution 32,contact24@supplier.tn,+216 03187800,Gabes,True
+25,Djerba Trade Hub 10,contact25@supplier.tn,+216 16848711,Sousse,True
+26,Monastir Devices 11,contact26@supplier.tn,+216 17046273,Nabeul,True
+27,Sahara Imports 91,contact27@supplier.tn,+216 96126801,Tunis,True
+28,Sahara Imports 34,contact28@supplier.tn,+216 15967013,Nabeul,True
+29,Nabeul Stationery 76,contact29@supplier.tn,+216 24622320,Bizerte,True
+30,Medina Wholesale 9,contact30@supplier.tn,+216 04907468,Monastir,True
+31,Monastir Devices 87,contact31@supplier.tn,+216 05936602,Gabes,True
+32,Monastir Devices 62,contact32@supplier.tn,+216 33457216,Kairouan,True
+33,Sfax Office Market 42,contact33@supplier.tn,+216 98948417,Kairouan,True
+34,Zaghouan Partners 18,contact34@supplier.tn,+216 73813489,Sousse,True
+35,Medina Wholesale 28,contact35@supplier.tn,+216 03130339,Bizerte,True
+36,Sfax Office Market 78,contact36@supplier.tn,+216 74919090,Gabes,True
+37,Djerba Trade Hub 38,contact37@supplier.tn,+216 15424963,Bizerte,True
+38,Kairouan Logistics 79,contact38@supplier.tn,+216 11278839,Sfax,True
+39,Atlas Provisions 54,contact39@supplier.tn,+216 29699694,Bizerte,True
+40,Djerba Trade Hub 43,contact40@supplier.tn,+216 69975976,Nabeul,True
