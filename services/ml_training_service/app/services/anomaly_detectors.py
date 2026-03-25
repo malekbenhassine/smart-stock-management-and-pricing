@@ -3,6 +3,7 @@ import pandas as pd
 from dataclasses import dataclass #module pour créer une classe
 from typing import List, Dict, Any #in+mporter les types
 from sklearn.preprocessing import StandardScaler
+#yrod les valeurs entre 0 w 1 bch modéle yefehmou
 #un transformateur de données de scikit-learn utilisé pour normaliser les données avant d’entraîner le modèle
 from sklearn.ensemble import IsolationForest
 # algorithme de détection d’anomalies de scikit-learn qui utilise une approche d’isolation
@@ -52,6 +53,8 @@ def build_anomaly_dataset(products: pd.DataFrame, competitor_prices: pd.DataFram
     #delta_pct : pourcentage de changement du prix concurrent par rapport au prix précédent
     df["delta_pct"] = df["delta_pct"].replace([np.inf, -np.inf], np.nan).fillna(0.0)
     #remplacer les valeurs infinies par NaN puis les NaN par 0.0 inf=>infinie
+    df["delta_pct"] = df["delta_pct"].clip(-2, 2)
+    #limiter les valeurs de delta_pct entre -200% et +200% pour éviter les valeurs extrêmes
     df["prev_time"] = df.groupby(["product_id","competitor_id"])["collected_at"].shift(1)
     # prev_time contient le timestamp de la collecte précédente pour le même produit et concurrent
     df["gap_hours"] = (df["collected_at"] - df["prev_time"]).dt.total_seconds() / 3600.0 
@@ -64,6 +67,8 @@ def build_anomaly_dataset(products: pd.DataFrame, competitor_prices: pd.DataFram
     #.median() : calculer moyenne de la colonne gap_hours
     #.notna().any() : vérifier s’il y a au moins une valeur non manquante dans gap_hours pour éviter erreur si toutes les valeurs sont NaN
     #sinon on remplace par 0.0 (aucun écart de temps)
+    df["gap_hours"] = df["gap_hours"].clip(lower=0)
+    df["gap_hours_log"] = np.log1p(df["gap_hours"])
     
     return df.dropna()
     #Supprime les lignes qui ont encore des NaN dans n’importe quelle colonne
@@ -71,7 +76,7 @@ def build_anomaly_dataset(products: pd.DataFrame, competitor_prices: pd.DataFram
 def train_anomaly_ml(products: pd.DataFrame, competitor_prices: pd.DataFrame) -> AnomalyArtifacts:
     df = build_anomaly_dataset(products, competitor_prices)
 
-    feature_cols = ["log_ratio", "delta_pct", "gap_hours", "status_bad"]
+    feature_cols = ["log_ratio", "delta_pct", "gap_hours_log", "status_bad"]
     #choisir les colonnes à utiliser pour entrainer le modèle 
     X = df[feature_cols].values.astype(float)
     #x est une matrice numpy qui contient les valeurs des colonnes choisies converties en float
@@ -83,8 +88,8 @@ def train_anomaly_ml(products: pd.DataFrame, competitor_prices: pd.DataFrame) ->
     # puis appliquer la normalisation pour obtenir Xs
 
     iforest = IsolationForest(
-        n_estimators=400,
-        contamination=0.05,#estimation de la proportion d’anomalies dans les données (5% dans notre cas)
+        n_estimators=400, #nombre d’arbres dans la forêt d’isolation
+        contamination=0.02,#estimation de la proportion d’anomalies dans les données (5% dans notre cas)
         random_state=42
     )
     iforest.fit(Xs)
@@ -95,6 +100,9 @@ def train_anomaly_ml(products: pd.DataFrame, competitor_prices: pd.DataFrame) ->
     #.decision_function : calculer un score d’anomalie pour chaque point de données dans Xs
     thr = float(np.quantile(scores, 0.05))
     #calcule le 5ᵉ percentile (les 5% des scores les plus petits.)
+    #Prend le score du 5e percentile :
+
+    #5% des scores sont en-dessous → considérés anomalies si on veut
     meta = {
         "train_rows": int(len(df)),
         "score_threshold": thr,
@@ -102,4 +110,9 @@ def train_anomaly_ml(products: pd.DataFrame, competitor_prices: pd.DataFrame) ->
         "feature_std": X.std(axis=0).tolist(),
     }
     #Créer des métadonnées pour le rapport meta
-    return AnomalyArtifacts(scaler, iforest, feature_cols, meta)
+    return AnomalyArtifacts(
+        scaler=scaler,
+        iforest=iforest,
+        feature_cols=feature_cols,
+        meta=meta
+    )

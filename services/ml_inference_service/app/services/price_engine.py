@@ -110,10 +110,13 @@ class PriceMLRecommender:
         promo_row = promo_week[(promo_week["product_id"] == pid) & (promo_week["week"] == last_week)]
         promo_flag = int(promo_row["promo_flag"].iloc[0]) if not promo_row.empty else 0
 
-        # simulation prix candidats (optimisation)
-        # (ce n'est pas "règles métier", c'est une recherche de l'optimum du modèle)
+        # simulation prix candidats 
+        
         low = max(min_price, current_price * 0.80)
-        high = max(low + 1.0, current_price * 1.20, comp_median * 1.10)
+        high = min(
+            max(low + 1.0, current_price * 1.20),
+            comp_median * 1.15
+        )
         candidates = np.linspace(low, high, 25)
 
         best = None
@@ -136,12 +139,25 @@ class PriceMLRecommender:
         delta_price_pct = (best["price"] - current_price) / max(current_price, 1e-6) * 100.0
         delta_demand_pct = (best["q50"] - cur_q50) / max(cur_q50, 1e-6) * 100.0
 
+        movement_text = {
+            "INCREASE": "une hausse de prix",
+            "DECREASE": "une baisse de prix",
+            "KEEP": "un maintien du prix"
+        }.get(direction, "un ajustement de prix")
+
+        promo_text = "une promotion est actuellement active" if promo_flag == 1 else "aucune promotion n’est actuellement active"
+
         explanation = (
-        f"Prix actuel={current_price:.2f}, recommandé={best['price']:.2f} ({direction}, {delta_price_pct:.1f}%). "
-        f"Concurrence médiane≈{comp_median:.2f}, promo_active={promo_flag}. "
-        f"Demande prévue (p50) au prix actuel≈{cur_q50:.2f}/sem, au prix recommandé≈{best['q50']:.2f}/sem ({delta_demand_pct:.1f}%). "
-        f"Marge prévue/sem: actuelle≈{cur_profit:.2f}, nouvelle≈{best['profit']:.2f}, impact≈{impact_profit:.2f}."
-        )
+             f"Le prix actuel du produit est de {current_price:.2f}. "
+             f"Le système recommande {movement_text} vers {best['price']:.2f}, soit une évolution de {delta_price_pct:+.1f}%. "
+             f"Cette recommandation tient compte du niveau de prix observé sur le marché, avec un prix concurrent médian estimé à {comp_median:.2f}, "
+             f"ainsi que du contexte commercial où {promo_text}. "
+             f"Au prix actuel, la demande hebdomadaire attendue est d’environ {cur_q50:.2f} unités, "
+             f"contre {best['q50']:.2f} unités au prix recommandé, soit une variation prévisionnelle de {delta_demand_pct:+.1f}%. "
+             f"En termes de rentabilité, la marge hebdomadaire estimée passerait de {cur_profit:.2f} à {best['profit']:.2f}, "
+             f"ce qui représente un impact prévisionnel de {impact_profit:+.2f}. "
+             f"L’objectif est d’améliorer le compromis entre compétitivité prix, volume vendu et marge générée."
+     )
         return {
             "product_id": pid,
             "demand_weekly": {"p10": best["q10"], "p50": best["q50"], "p90": best["q90"]},

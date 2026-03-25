@@ -3,7 +3,7 @@ from joblib import load
 import re
 
 def latest_artifact(models_dir: Path, prefix: str) -> Path:
-    # ex: prefix="demand_weekly_"
+    
     files = sorted(models_dir.glob(f"{prefix}*.joblib"))
     if not files:
         raise FileNotFoundError(f"Aucun artefact trouvé pour prefix={prefix} dans {models_dir}")

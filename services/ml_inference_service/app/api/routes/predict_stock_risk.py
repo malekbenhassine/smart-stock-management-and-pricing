@@ -6,6 +6,7 @@ from ...schemas.stock_risk_schemas import StockRiskResponse
 
 router = APIRouter(prefix="/predict")
 store = ModelStore(MODELS_DIR)
+#pour charger les modèles sauvegardés
 predictor = StockRiskPredictor()
 
 @router.get("/stock-risk/{product_id}", response_model=StockRiskResponse)
@@ -37,3 +38,11 @@ def predict_stock_risk(product_id: int):
         demand_stats=demand_stats,
         restock_rule=restock_rule,
     )
+# Cette route sert à prédire le risque de stock d’un produit à partir
+# de modèles déjà entraînés et de règles de réapprovisionnement sauvegardées.
+# Elle commence par charger le dernier modèle de demande ainsi que 
+# les dernières restock_rules, puis elle récupère pour le product_id demandé 
+# les statistiques de demande (p50, p90) et les règles de stock correspondantes. Si aucune règle
+# n’existe pour ce produit, elle retourne une réponse par défaut avec des valeurs nulles pour éviter une erreur. 
+# Sinon, elle envoie toutes ces informations au service StockRiskPredictor, qui calcule le niveau de risque et renvoie le résultat final 
+# sous le format défini par StockRiskResponse.

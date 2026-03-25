@@ -31,6 +31,7 @@ class PromoMLEngine:
 
     def _make_X(self, weekly: pd.DataFrame, pid: int, price_week: float, comp_median: float,
                 promo_flag: int, discount: float) -> np.ndarray:
+        #construit les features que le modéle ML 
         g = weekly[weekly["product_id"] == pid].sort_values("week")
         y = g["qty_week"].values.astype(float)
         if len(y) < 4:
@@ -86,6 +87,7 @@ class PromoMLEngine:
 
         for d in discounts:
             promo_price = current_price * (1.0 - d)
+            #calcul prix promo
             if promo_price < min_price:
                 continue
 
@@ -95,7 +97,8 @@ class PromoMLEngine:
             q90 = float(max(0.0, m90.predict(X)[0]))
 
             margin = (promo_price - cost) * q50
-            score = q50 if is_overstock else margin  # unités vs marge
+            #margin prévue pour ce prix promo
+            score = q50 if is_overstock else margin  
 
             if (best is None) or (score > best["score"]):
                 best = {

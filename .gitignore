@@ -1,0 +1,9 @@
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.joblib
+python
+services/ml_training_service/app/artifacts/models/
+services/ml_training_service/app/artifacts/reports/

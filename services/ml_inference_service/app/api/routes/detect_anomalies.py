@@ -21,6 +21,7 @@ def detect_anomalies(product_id: int):
 
         return engine.detect_for_product_ml(
             product=prod_row.iloc[0].to_dict(),
+            # obtenir la 1 ére ligne
             competitor_prices=competitor_prices
         )
     except Exception as e:
