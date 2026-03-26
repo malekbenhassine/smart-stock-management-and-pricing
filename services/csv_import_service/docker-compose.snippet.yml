@@ -1,0 +1,23 @@
+# ─── À ajouter dans ton docker-compose.yml existant ──────────────────────────
+#
+# Assure-toi que smart_postgres est déjà défini dans ton compose.
+# Ce service démarre après postgres et se connecte automatiquement.
+
+  csv_import_service:
+    build:
+      context: ./services/csv_import_service
+    container_name: csv_import_service
+    ports:
+      - "8030:8030"
+    environment:
+      DB_HOST: smart_postgres
+      DB_PORT: 5432
+      DB_NAME: smartdb
+      DB_USER: postgres
+      DB_PASS: postgres
+      ML_INFERENCE_URL: http://ml_inference_service:8020
+    depends_on:
+      - smart_postgres
+    networks:
+      - smart_network          # même réseau que tes autres services
+    restart: unless-stopped

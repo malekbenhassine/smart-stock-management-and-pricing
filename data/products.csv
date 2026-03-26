@@ -1,201 +1,201 @@
-product_id,sku,name,category,brand,unit,cost_price,min_margin,min_price,current_price,threshold_min,threshold_max,current_stock,created_at,is_active
-1,HP-INF-0001,HP Informatique Pro 873,Informatique,HP,box,86.5,0.19,102.94,121.47,15,117,77,2026-01-24,True
-2,BR-BUR-0002,Brother Bureautique Pro 378,Bureautique,Brother,box,103.3,0.29,133.26,164.74,13,112,21,2025-12-01,True
-3,XE-INF-0003,Xerox Informatique Max 120,Informatique,Xerox,piece,595.41,0.23,732.35,969.09,11,191,202,2025-01-13,True
-4,AS-BUR-0004,Asus Bureautique Eco 903,Bureautique,Asus,pack,343.0,0.28,439.04,491.6,34,115,25,2025-05-23,True
-5,AS-ACC-0005,Asus Accessoires Max 485,Accessoires,Asus,pack,346.48,0.14,394.99,455.85,22,175,72,2024-02-29,True
-6,XE-TÉL-0006,Xerox Téléphonie Plus 491,Téléphonie,Xerox,piece,794.56,0.28,1017.04,1356.71,39,96,115,2025-07-03,True
-7,HP-TÉL-0007,HP Téléphonie Max 889,Téléphonie,HP,piece,360.43,0.21,436.12,460.52,24,139,36,2023-11-11,True
-8,CA-ACC-0008,Canon Accessoires Pro 674,Accessoires,Canon,piece,170.11,0.33,226.25,275.08,10,76,51,2024-05-27,True
-9,XE-RÉS-0009,Xerox Réseau Standard 878,Réseau,Xerox,piece,51.85,0.21,62.74,72.52,26,94,9,2025-03-25,True
-10,AS-ACC-0010,Asus Accessoires Standard 516,Accessoires,Asus,piece,218.18,0.14,248.73,299.87,36,205,255,2025-04-03,True
-11,BR-ACC-0011,Brother Accessoires Eco 572,Accessoires,Brother,box,388.98,0.23,478.45,604.81,10,66,54,2024-03-03,True
-12,SA-INF-0012,Samsung Informatique Plus 875,Informatique,Samsung,piece,133.86,0.28,171.34,184.16,33,92,9,2024-12-10,True
-13,EP-RÉS-0013,Epson Réseau Standard 598,Réseau,Epson,piece,600.45,0.23,738.55,850.66,23,83,111,2025-04-22,True
-14,DE-ACC-0014,Dell Accessoires Standard 430,Accessoires,Dell,box,712.19,0.23,875.99,941.48,23,186,175,2025-07-23,True
-15,LO-TÉL-0015,Logitech Téléphonie Standard 719,Téléphonie,Logitech,pack,380.33,0.14,433.58,489.49,13,85,134,2024-02-16,True
-16,HP-RÉS-0016,HP Réseau Eco 526,Réseau,HP,piece,124.53,0.1,136.98,183.88,24,102,51,2024-03-09,True
-17,XE-INF-0017,Xerox Informatique Max 438,Informatique,Xerox,piece,53.58,0.21,64.83,69.47,27,219,115,2025-03-01,True
-18,HP-ACC-0018,HP Accessoires Plus 381,Accessoires,HP,pack,657.5,0.31,861.33,1044.69,24,148,159,2023-12-25,True
-19,DE-RÉS-0019,Dell Réseau Standard 654,Réseau,Dell,box,529.2,0.1,582.12,623.04,18,119,45,2025-05-24,True
-20,CA-TÉL-0020,Canon Téléphonie Plus 916,Téléphonie,Canon,box,471.92,0.29,608.78,687.28,22,209,242,2025-07-18,True
-21,HP-BUR-0021,HP Bureautique Plus 321,Bureautique,HP,piece,743.99,0.25,929.99,992.58,35,65,41,2025-11-30,True
-22,EP-INF-0022,Epson Informatique Standard 926,Informatique,Epson,pack,343.2,0.21,415.27,465.04,12,103,143,2025-01-11,True
-23,SA-RÉS-0023,Samsung Réseau Max 463,Réseau,Samsung,pack,671.73,0.17,785.92,821.92,18,90,71,2024-02-20,True
-24,SA-BUR-0024,Samsung Bureautique Standard 552,Bureautique,Samsung,pack,557.6,0.15,641.24,679.51,32,228,178,2025-08-19,True
-25,LO-INF-0025,Logitech Informatique Max 889,Informatique,Logitech,box,280.06,0.19,333.27,407.79,17,144,95,2025-08-18,True
-26,HP-ACC-0026,HP Accessoires Plus 552,Accessoires,HP,pack,423.17,0.08,457.02,512.97,11,135,64,2024-09-21,True
-27,AS-INF-0027,Asus Informatique Eco 134,Informatique,Asus,box,223.59,0.21,270.54,279.87,21,121,160,2025-12-21,True
-28,HP-TÉL-0028,HP Téléphonie Max 722,Téléphonie,HP,box,366.31,0.13,413.93,524.65,39,95,9,2025-02-04,True
-29,AS-INF-0029,Asus Informatique Plus 822,Informatique,Asus,box,145.64,0.31,190.79,199.82,12,56,56,2024-05-06,True
-30,HP-ACC-0030,HP Accessoires Eco 199,Accessoires,HP,box,225.6,0.31,295.54,365.34,6,121,81,2024-02-22,True
-31,AS-BUR-0031,Asus Bureautique Eco 628,Bureautique,Asus,piece,752.73,0.19,895.75,1161.29,8,54,24,2023-10-27,True
-32,EP-TÉL-0032,Epson Téléphonie Eco 185,Téléphonie,Epson,piece,357.5,0.15,411.12,446.3,37,171,44,2024-05-08,True
-33,HP-ACC-0033,HP Accessoires Eco 380,Accessoires,HP,box,283.79,0.17,332.03,400.93,10,184,118,2025-11-19,True
-34,CA-INF-0034,Canon Informatique Plus 847,Informatique,Canon,piece,152.6,0.24,189.22,253.31,15,47,27,2024-05-05,True
-35,LE-CON-0035,Lenovo Consommables Pro 998,Consommables,Lenovo,box,754.87,0.16,875.65,1089.92,17,80,79,2025-12-25,True
-36,DE-RÉS-0036,Dell Réseau Plus 385,Réseau,Dell,piece,454.21,0.19,540.51,700.31,22,103,45,2025-04-21,True
-37,LE-CON-0037,Lenovo Consommables Eco 194,Consommables,Lenovo,pack,287.35,0.18,339.07,432.27,38,183,212,2024-05-12,True
-38,EP-ACC-0038,Epson Accessoires Pro 954,Accessoires,Epson,box,311.62,0.23,383.29,417.6,32,150,165,2023-11-10,True
-39,DE-ACC-0039,Dell Accessoires Plus 450,Accessoires,Dell,box,774.95,0.23,953.19,1206.01,22,75,65,2023-12-19,True
-40,DE-BUR-0040,Dell Bureautique Plus 578,Bureautique,Dell,pack,30.0,0.11,33.3,41.2,16,167,35,2024-10-27,True
-41,LO-TÉL-0041,Logitech Téléphonie Eco 677,Téléphonie,Logitech,pack,528.35,0.32,697.42,785.56,11,202,91,2023-09-11,True
-42,EP-INF-0042,Epson Informatique Max 586,Informatique,Epson,pack,272.65,0.32,359.9,389.32,27,135,41,2024-10-27,True
-43,EP-TÉL-0043,Epson Téléphonie Pro 549,Téléphonie,Epson,box,367.87,0.24,456.16,530.76,30,181,213,2025-06-13,True
-44,LO-CON-0044,Logitech Consommables Standard 445,Consommables,Logitech,pack,544.45,0.16,631.56,846.51,19,178,27,2024-12-13,True
-45,DE-RÉS-0045,Dell Réseau Standard 510,Réseau,Dell,box,27.7,0.22,33.79,44.75,38,118,145,2024-01-10,True
-46,EP-BUR-0046,Epson Bureautique Eco 907,Bureautique,Epson,piece,776.41,0.16,900.64,1146.26,27,174,101,2025-09-01,True
-47,HP-RÉS-0047,HP Réseau Plus 305,Réseau,HP,piece,244.52,0.1,268.97,295.31,18,159,23,2024-02-07,True
-48,EP-BUR-0048,Epson Bureautique Standard 965,Bureautique,Epson,pack,8.93,0.12,10.0,10.53,40,170,178,2025-07-15,True
-49,SA-RÉS-0049,Samsung Réseau Max 823,Réseau,Samsung,piece,611.63,0.11,678.91,721.28,13,145,83,2025-05-04,True
-50,SA-ACC-0050,Samsung Accessoires Standard 503,Accessoires,Samsung,box,61.97,0.21,74.98,94.8,6,92,45,2023-12-24,True
-51,LO-BUR-0051,Logitech Bureautique Eco 448,Bureautique,Logitech,box,659.47,0.24,817.74,1036.94,9,204,58,2025-09-29,True
-52,BR-RÉS-0052,Brother Réseau Pro 316,Réseau,Brother,pack,351.14,0.17,410.83,507.72,32,100,72,2025-04-05,True
-53,LE-RÉS-0053,Lenovo Réseau Pro 367,Réseau,Lenovo,pack,147.72,0.19,175.79,209.32,11,160,206,2025-11-25,True
-54,CA-CON-0054,Canon Consommables Max 922,Consommables,Canon,piece,132.9,0.11,147.52,175.15,34,66,62,2024-04-19,True
-55,SA-ACC-0055,Samsung Accessoires Max 889,Accessoires,Samsung,piece,245.85,0.15,282.73,347.55,33,191,95,2023-12-11,True
-56,LO-RÉS-0056,Logitech Réseau Standard 473,Réseau,Logitech,piece,629.47,0.34,843.49,1008.36,29,79,38,2026-02-10,True
-57,AS-CON-0057,Asus Consommables Eco 302,Consommables,Asus,box,651.2,0.28,833.54,975.36,8,156,72,2026-01-08,True
-58,LE-INF-0058,Lenovo Informatique Max 475,Informatique,Lenovo,piece,711.89,0.27,904.1,997.46,26,131,6,2024-08-11,True
-59,EP-CON-0059,Epson Consommables Eco 465,Consommables,Epson,pack,18.93,0.17,22.15,27.24,12,133,9,2024-08-22,True
-60,SA-ACC-0060,Samsung Accessoires Plus 279,Accessoires,Samsung,piece,430.31,0.11,477.64,509.99,36,176,70,2025-03-01,True
-61,AS-RÉS-0061,Asus Réseau Plus 945,Réseau,Asus,box,657.29,0.23,808.47,835.48,25,150,9,2025-09-20,True
-62,CA-TÉL-0062,Canon Téléphonie Max 624,Téléphonie,Canon,box,67.62,0.33,89.93,113.96,32,164,5,2025-08-13,True
-63,DE-ACC-0063,Dell Accessoires Pro 956,Accessoires,Dell,pack,772.3,0.29,996.27,1203.89,24,211,124,2024-03-09,True
-64,LO-INF-0064,Logitech Informatique Standard 584,Informatique,Logitech,piece,609.77,0.2,731.72,926.7,16,116,128,2024-04-01,True
-65,AS-INF-0065,Asus Informatique Max 285,Informatique,Asus,box,231.51,0.08,250.03,272.12,31,229,66,2025-05-12,True
-66,LE-CON-0066,Lenovo Consommables Standard 909,Consommables,Lenovo,box,257.94,0.14,294.05,301.68,25,111,16,2024-06-01,True
-67,AS-CON-0067,Asus Consommables Max 702,Consommables,Asus,pack,509.64,0.17,596.28,684.76,40,73,43,2025-03-06,True
-68,LO-CON-0068,Logitech Consommables Max 255,Consommables,Logitech,pack,684.21,0.21,827.89,989.86,15,144,65,2025-01-01,True
-69,AS-INF-0069,Asus Informatique Pro 746,Informatique,Asus,pack,451.25,0.17,527.96,574.68,38,162,77,2025-04-25,True
-70,LE-CON-0070,Lenovo Consommables Max 130,Consommables,Lenovo,piece,501.77,0.13,567.0,644.13,32,168,195,2026-01-25,True
-71,XE-CON-0071,Xerox Consommables Max 340,Consommables,Xerox,pack,737.34,0.12,825.82,1007.79,12,66,50,2025-07-09,True
-72,CA-BUR-0072,Canon Bureautique Standard 396,Bureautique,Canon,piece,692.59,0.29,893.44,1201.54,30,200,104,2025-02-22,True
-73,SA-BUR-0073,Samsung Bureautique Standard 385,Bureautique,Samsung,pack,617.55,0.25,771.94,956.59,25,183,137,2024-08-21,True
-74,BR-RÉS-0074,Brother Réseau Max 606,Réseau,Brother,pack,232.6,0.33,309.36,331.57,16,148,73,2026-02-14,True
-75,LO-TÉL-0075,Logitech Téléphonie Max 771,Téléphonie,Logitech,piece,548.26,0.11,608.57,737.25,31,168,105,2025-08-08,True
-76,HP-ACC-0076,HP Accessoires Standard 329,Accessoires,HP,piece,489.72,0.22,597.46,625.28,31,66,41,2024-06-03,True
-77,EP-BUR-0077,Epson Bureautique Standard 740,Bureautique,Epson,pack,549.07,0.34,735.75,755.98,29,200,130,2023-09-17,True
-78,EP-BUR-0078,Epson Bureautique Max 477,Bureautique,Epson,box,700.35,0.13,791.4,1051.97,17,129,33,2025-04-23,True
-79,HP-INF-0079,HP Informatique Plus 691,Informatique,HP,pack,370.06,0.26,466.28,543.87,20,95,118,2024-09-23,True
-80,CA-ACC-0080,Canon Accessoires Standard 957,Accessoires,Canon,pack,698.31,0.33,928.75,1022.37,9,40,4,2024-03-21,True
-81,SA-ACC-0081,Samsung Accessoires Standard 581,Accessoires,Samsung,pack,60.94,0.19,72.52,80.19,39,99,136,2024-02-17,True
-82,LE-INF-0082,Lenovo Informatique Max 947,Informatique,Lenovo,box,52.53,0.3,68.29,88.32,7,130,102,2024-02-15,True
-83,LE-TÉL-0083,Lenovo Téléphonie Max 906,Téléphonie,Lenovo,piece,87.38,0.31,114.47,145.39,12,85,93,2024-12-22,True
-84,LO-ACC-0084,Logitech Accessoires Plus 348,Accessoires,Logitech,pack,172.02,0.11,190.94,235.21,9,156,181,2024-10-02,True
-85,DE-BUR-0085,Dell Bureautique Eco 402,Bureautique,Dell,box,358.51,0.29,462.48,578.5,22,204,9,2023-12-31,True
-86,EP-BUR-0086,Epson Bureautique Standard 395,Bureautique,Epson,piece,180.71,0.18,213.24,243.03,23,131,40,2024-07-16,True
-87,DE-ACC-0087,Dell Accessoires Max 830,Accessoires,Dell,pack,540.26,0.12,605.09,777.97,13,80,74,2023-09-22,True
-88,DE-RÉS-0088,Dell Réseau Plus 128,Réseau,Dell,piece,468.67,0.12,524.91,537.5,28,188,190,2024-09-06,True
-89,LE-RÉS-0089,Lenovo Réseau Standard 274,Réseau,Lenovo,pack,516.86,0.24,640.91,759.71,38,163,96,2023-09-15,True
-90,EP-RÉS-0090,Epson Réseau Standard 593,Réseau,Epson,piece,389.78,0.18,459.94,570.64,9,126,57,2025-04-07,True
-91,BR-BUR-0091,Brother Bureautique Plus 384,Bureautique,Brother,box,623.52,0.29,804.34,992.96,27,184,117,2024-07-14,True
-92,HP-ACC-0092,HP Accessoires Standard 333,Accessoires,HP,box,166.01,0.26,209.17,240.86,11,125,129,2025-12-11,True
-93,XE-CON-0093,Xerox Consommables Standard 966,Consommables,Xerox,box,432.49,0.1,475.74,610.52,33,208,126,2025-06-12,True
-94,EP-CON-0094,Epson Consommables Plus 333,Consommables,Epson,box,575.32,0.13,650.11,873.22,22,193,71,2025-11-16,True
-95,BR-ACC-0095,Brother Accessoires Pro 235,Accessoires,Brother,box,245.69,0.14,280.09,308.24,35,183,25,2024-08-17,True
-96,LO-INF-0096,Logitech Informatique Pro 301,Informatique,Logitech,pack,97.54,0.1,107.29,116.42,39,219,110,2024-06-15,True
-97,DE-RÉS-0097,Dell Réseau Standard 109,Réseau,Dell,box,346.66,0.32,457.59,575.46,33,227,99,2024-06-24,True
-98,AS-ACC-0098,Asus Accessoires Max 100,Accessoires,Asus,pack,604.88,0.24,750.05,886.98,16,130,129,2024-10-11,True
-99,DE-TÉL-0099,Dell Téléphonie Eco 370,Téléphonie,Dell,box,202.97,0.15,233.42,281.32,24,214,225,2025-10-26,True
-100,LE-BUR-0100,Lenovo Bureautique Pro 426,Bureautique,Lenovo,box,379.05,0.12,424.54,442.22,32,139,24,2023-09-19,True
-101,LO-RÉS-0101,Logitech Réseau Standard 942,Réseau,Logitech,piece,158.91,0.11,176.39,193.41,24,182,78,2025-03-27,True
-102,LE-TÉL-0102,Lenovo Téléphonie Pro 801,Téléphonie,Lenovo,pack,742.4,0.14,846.34,1050.92,25,95,49,2023-12-26,True
-103,EP-RÉS-0103,Epson Réseau Plus 724,Réseau,Epson,box,129.92,0.34,174.09,233.94,31,129,58,2025-05-24,True
-104,DE-RÉS-0104,Dell Réseau Eco 248,Réseau,Dell,pack,270.31,0.18,318.97,403.79,33,141,108,2024-07-21,True
-105,SA-RÉS-0105,Samsung Réseau Pro 880,Réseau,Samsung,pack,48.97,0.19,58.27,71.85,13,159,196,2025-05-13,True
-106,BR-INF-0106,Brother Informatique Plus 777,Informatique,Brother,box,208.46,0.3,271.0,278.54,32,159,83,2024-07-26,True
-107,BR-TÉL-0107,Brother Téléphonie Plus 732,Téléphonie,Brother,box,354.88,0.15,408.11,426.3,15,128,122,2024-02-10,True
-108,LE-TÉL-0108,Lenovo Téléphonie Pro 899,Téléphonie,Lenovo,box,315.1,0.34,422.23,529.11,20,121,155,2024-06-27,True
-109,HP-RÉS-0109,HP Réseau Pro 157,Réseau,HP,box,277.44,0.23,341.25,397.41,23,81,120,2025-10-03,True
-110,CA-ACC-0110,Canon Accessoires Eco 893,Accessoires,Canon,box,333.95,0.12,374.02,400.07,24,200,51,2024-07-22,True
-111,LE-INF-0111,Lenovo Informatique Plus 435,Informatique,Lenovo,box,439.54,0.26,553.82,666.63,23,58,17,2023-12-20,True
-112,LO-INF-0112,Logitech Informatique Eco 891,Informatique,Logitech,pack,599.08,0.14,682.95,769.01,19,166,92,2025-03-13,True
-113,DE-BUR-0113,Dell Bureautique Eco 718,Bureautique,Dell,box,746.48,0.12,836.06,1029.98,32,163,206,2024-10-07,True
-114,XE-INF-0114,Xerox Informatique Pro 624,Informatique,Xerox,pack,17.88,0.2,21.46,22.12,37,150,137,2024-10-02,True
-115,AS-CON-0115,Asus Consommables Eco 749,Consommables,Asus,piece,588.87,0.23,724.31,971.66,12,178,40,2023-11-23,True
-116,CA-TÉL-0116,Canon Téléphonie Standard 579,Téléphonie,Canon,box,521.89,0.13,589.74,615.76,32,132,119,2024-11-12,True
-117,EP-ACC-0117,Epson Accessoires Eco 174,Accessoires,Epson,piece,520.03,0.17,608.44,726.57,32,67,51,2024-07-09,True
-118,HP-CON-0118,HP Consommables Standard 948,Consommables,HP,pack,20.0,0.14,22.8,26.47,21,108,149,2024-03-29,True
-119,XE-CON-0119,Xerox Consommables Max 769,Consommables,Xerox,box,164.26,0.3,213.54,283.02,14,92,37,2025-07-21,True
-120,EP-CON-0120,Epson Consommables Pro 126,Consommables,Epson,box,483.53,0.31,633.42,809.02,39,158,17,2025-03-19,True
-121,BR-CON-0121,Brother Consommables Plus 306,Consommables,Brother,pack,134.81,0.35,181.99,199.62,18,138,6,2025-09-30,True
-122,CA-RÉS-0122,Canon Réseau Max 126,Réseau,Canon,pack,694.69,0.31,910.04,990.88,8,152,112,2025-01-05,True
-123,BR-BUR-0123,Brother Bureautique Max 704,Bureautique,Brother,piece,78.82,0.13,89.07,117.7,38,99,41,2024-01-05,True
-124,CA-BUR-0124,Canon Bureautique Max 858,Bureautique,Canon,box,289.92,0.35,391.39,452.84,18,71,102,2024-09-16,True
-125,LE-CON-0125,Lenovo Consommables Eco 620,Consommables,Lenovo,piece,756.19,0.08,816.69,935.44,31,163,25,2025-02-19,True
-126,DE-CON-0126,Dell Consommables Pro 544,Consommables,Dell,box,244.05,0.35,329.47,345.24,29,179,4,2025-05-12,True
-127,LO-ACC-0127,Logitech Accessoires Pro 244,Accessoires,Logitech,piece,146.0,0.08,157.68,187.82,13,163,195,2026-01-09,True
-128,AS-INF-0128,Asus Informatique Plus 987,Informatique,Asus,box,530.46,0.18,625.94,724.16,15,152,44,2025-08-23,True
-129,EP-TÉL-0129,Epson Téléphonie Plus 473,Téléphonie,Epson,piece,630.31,0.09,687.04,747.05,30,220,191,2023-10-10,True
-130,AS-CON-0130,Asus Consommables Eco 129,Consommables,Asus,piece,268.61,0.32,354.57,365.67,14,148,11,2024-08-14,True
-131,AS-RÉS-0131,Asus Réseau Standard 273,Réseau,Asus,piece,84.59,0.17,98.97,108.22,31,77,28,2024-10-18,True
-132,SA-RÉS-0132,Samsung Réseau Standard 550,Réseau,Samsung,piece,686.25,0.3,892.12,910.17,35,185,230,2025-05-30,True
-133,LO-BUR-0133,Logitech Bureautique Standard 474,Bureautique,Logitech,box,536.4,0.11,595.4,704.13,17,79,56,2024-09-08,True
-134,EP-BUR-0134,Epson Bureautique Plus 775,Bureautique,Epson,piece,595.83,0.27,756.7,842.33,11,104,57,2025-06-06,True
-135,DE-BUR-0135,Dell Bureautique Eco 827,Bureautique,Dell,pack,536.34,0.22,654.33,792.04,22,85,83,2024-12-12,True
-136,EP-CON-0136,Epson Consommables Standard 854,Consommables,Epson,piece,599.61,0.3,779.49,957.62,17,93,3,2025-09-24,True
-137,HP-ACC-0137,HP Accessoires Plus 265,Accessoires,HP,pack,261.41,0.23,321.53,379.3,27,105,147,2024-12-29,True
-138,BR-RÉS-0138,Brother Réseau Max 736,Réseau,Brother,pack,438.97,0.11,487.26,541.92,37,153,86,2025-08-11,True
-139,LO-CON-0139,Logitech Consommables Max 890,Consommables,Logitech,box,367.77,0.11,408.22,531.73,38,135,16,2023-12-10,True
-140,SA-CON-0140,Samsung Consommables Pro 656,Consommables,Samsung,piece,80.19,0.34,107.45,139.03,12,182,182,2025-04-21,True
-141,LO-BUR-0141,Logitech Bureautique Eco 563,Bureautique,Logitech,pack,444.87,0.33,591.68,792.19,37,113,101,2023-11-01,True
-142,BR-TÉL-0142,Brother Téléphonie Plus 960,Téléphonie,Brother,box,181.38,0.08,195.89,247.22,27,191,153,2023-12-12,True
-143,AS-BUR-0143,Asus Bureautique Standard 637,Bureautique,Asus,piece,641.21,0.18,756.63,829.3,38,110,95,2025-09-08,True
-144,EP-INF-0144,Epson Informatique Standard 331,Informatique,Epson,box,125.88,0.33,167.42,204.45,17,118,12,2025-01-03,True
-145,SA-CON-0145,Samsung Consommables Standard 531,Consommables,Samsung,pack,377.06,0.12,422.31,561.5,5,54,32,2024-02-23,True
-146,DE-TÉL-0146,Dell Téléphonie Plus 851,Téléphonie,Dell,box,477.22,0.1,524.94,666.26,13,79,123,2023-10-29,True
-147,BR-BUR-0147,Brother Bureautique Max 905,Bureautique,Brother,piece,518.64,0.19,617.18,668.91,27,75,28,2025-05-11,True
-148,SA-BUR-0148,Samsung Bureautique Pro 843,Bureautique,Samsung,box,470.81,0.26,593.22,645.38,14,114,83,2026-02-06,True
-149,CA-ACC-0149,Canon Accessoires Standard 418,Accessoires,Canon,box,86.58,0.25,108.22,127.21,33,139,31,2024-08-12,True
-150,AS-ACC-0150,Asus Accessoires Max 257,Accessoires,Asus,piece,704.78,0.28,902.12,1134.51,22,62,48,2023-10-13,True
-151,CA-CON-0151,Canon Consommables Max 536,Consommables,Canon,box,138.92,0.27,176.43,230.35,36,140,57,2024-08-31,True
-152,CA-INF-0152,Canon Informatique Standard 713,Informatique,Canon,pack,196.83,0.31,257.85,305.09,32,169,14,2024-05-05,True
-153,DE-INF-0153,Dell Informatique Eco 357,Informatique,Dell,box,408.72,0.19,486.38,630.34,27,78,3,2025-11-06,True
-154,LE-ACC-0154,Lenovo Accessoires Plus 699,Accessoires,Lenovo,pack,181.0,0.2,217.2,240.59,36,209,192,2024-06-06,True
-155,SA-TÉL-0155,Samsung Téléphonie Pro 716,Téléphonie,Samsung,piece,474.32,0.29,611.87,816.75,11,71,97,2025-06-18,True
-156,AS-CON-0156,Asus Consommables Standard 531,Consommables,Asus,pack,576.04,0.09,627.88,774.51,33,180,146,2023-09-17,True
-157,HP-TÉL-0157,HP Téléphonie Max 932,Téléphonie,HP,box,596.79,0.2,716.15,945.08,18,193,46,2026-01-24,True
-158,LO-ACC-0158,Logitech Accessoires Pro 399,Accessoires,Logitech,pack,642.51,0.28,822.41,1069.39,21,142,174,2025-03-02,True
-159,BR-CON-0159,Brother Consommables Eco 556,Consommables,Brother,piece,262.99,0.27,334.0,410.65,15,98,142,2023-12-21,True
-160,LO-TÉL-0160,Logitech Téléphonie Max 871,Téléphonie,Logitech,pack,625.87,0.13,707.23,838.03,10,125,90,2024-05-27,True
-161,BR-TÉL-0161,Brother Téléphonie Eco 948,Téléphonie,Brother,pack,85.53,0.27,108.62,133.71,25,214,254,2024-05-04,True
-162,SA-BUR-0162,Samsung Bureautique Plus 371,Bureautique,Samsung,box,390.93,0.17,457.39,532.61,28,98,43,2025-03-24,True
-163,CA-INF-0163,Canon Informatique Plus 695,Informatique,Canon,pack,727.52,0.27,923.95,1113.32,40,207,91,2025-01-06,True
-164,CA-TÉL-0164,Canon Téléphonie Plus 195,Téléphonie,Canon,piece,570.77,0.33,759.12,940.44,21,88,87,2024-08-21,True
-165,SA-CON-0165,Samsung Consommables Plus 494,Consommables,Samsung,piece,676.78,0.28,866.28,1134.16,23,210,42,2025-03-23,True
-166,LE-BUR-0166,Lenovo Bureautique Pro 351,Bureautique,Lenovo,box,128.23,0.35,173.11,178.08,19,105,62,2025-07-01,True
-167,BR-RÉS-0167,Brother Réseau Plus 112,Réseau,Brother,pack,198.73,0.09,216.62,264.72,33,169,142,2024-08-02,True
-168,BR-TÉL-0168,Brother Téléphonie Max 290,Téléphonie,Brother,box,466.81,0.25,583.51,766.29,29,125,93,2023-11-18,True
-169,SA-CON-0169,Samsung Consommables Eco 473,Consommables,Samsung,piece,259.52,0.18,306.23,409.18,13,125,63,2023-11-26,True
-170,AS-TÉL-0170,Asus Téléphonie Plus 198,Téléphonie,Asus,box,568.14,0.22,693.13,730.97,19,138,183,2024-03-01,True
-171,XE-ACC-0171,Xerox Accessoires Plus 576,Accessoires,Xerox,pack,461.54,0.09,503.08,615.87,36,217,223,2025-12-13,True
-172,HP-BUR-0172,HP Bureautique Standard 559,Bureautique,HP,box,521.97,0.32,689.0,811.15,14,60,87,2025-02-20,True
-173,DE-INF-0173,Dell Informatique Standard 358,Informatique,Dell,box,26.92,0.24,33.38,38.79,13,144,55,2024-04-11,True
-174,DE-RÉS-0174,Dell Réseau Standard 813,Réseau,Dell,box,247.21,0.14,281.82,361.71,37,171,36,2023-12-26,True
-175,AS-TÉL-0175,Asus Téléphonie Eco 983,Téléphonie,Asus,piece,776.86,0.09,846.78,1074.54,12,60,78,2025-12-14,True
-176,SA-TÉL-0176,Samsung Téléphonie Plus 850,Téléphonie,Samsung,piece,202.8,0.24,251.47,319.47,16,92,7,2024-04-24,True
-177,CA-RÉS-0177,Canon Réseau Eco 191,Réseau,Canon,piece,757.19,0.23,931.34,1241.64,29,163,97,2024-03-06,True
-178,EP-RÉS-0178,Epson Réseau Eco 287,Réseau,Epson,piece,252.4,0.13,285.21,331.42,21,178,23,2025-08-13,True
-179,SA-CON-0179,Samsung Consommables Plus 332,Consommables,Samsung,pack,788.58,0.25,985.73,1115.95,11,175,65,2026-01-28,True
-180,HP-TÉL-0180,HP Téléphonie Standard 160,Téléphonie,HP,box,301.65,0.13,340.86,456.07,38,71,0,2025-03-20,True
-181,DE-RÉS-0181,Dell Réseau Pro 919,Réseau,Dell,box,452.87,0.31,593.26,792.23,17,209,255,2025-08-15,True
-182,BR-TÉL-0182,Brother Téléphonie Eco 199,Téléphonie,Brother,box,730.53,0.24,905.86,1095.56,33,108,129,2025-09-18,True
-183,HP-RÉS-0183,HP Réseau Standard 139,Réseau,HP,box,711.15,0.29,917.38,972.14,24,128,27,2025-02-25,True
-184,EP-ACC-0184,Epson Accessoires Standard 630,Accessoires,Epson,piece,720.68,0.21,872.02,1063.13,26,172,168,2024-08-05,True
-185,LE-RÉS-0185,Lenovo Réseau Pro 784,Réseau,Lenovo,box,57.04,0.15,65.6,69.97,36,114,103,2026-01-06,True
-186,HP-CON-0186,HP Consommables Max 930,Consommables,HP,box,567.57,0.31,743.52,782.63,38,91,82,2024-08-27,True
-187,AS-TÉL-0187,Asus Téléphonie Standard 634,Téléphonie,Asus,pack,606.75,0.25,758.44,844.33,13,157,195,2025-07-30,True
-188,SA-CON-0188,Samsung Consommables Max 545,Consommables,Samsung,pack,70.5,0.09,76.84,81.02,40,193,156,2025-01-15,True
-189,LE-CON-0189,Lenovo Consommables Eco 889,Consommables,Lenovo,box,560.63,0.22,683.97,707.05,10,118,150,2024-01-14,True
-190,XE-TÉL-0190,Xerox Téléphonie Plus 756,Téléphonie,Xerox,pack,592.71,0.22,723.11,748.84,24,152,48,2025-02-22,True
-191,HP-TÉL-0191,HP Téléphonie Max 856,Téléphonie,HP,box,421.57,0.13,476.37,544.19,7,91,25,2024-11-06,True
-192,BR-BUR-0192,Brother Bureautique Eco 174,Bureautique,Brother,box,166.87,0.14,190.23,234.24,5,46,48,2025-07-22,True
-193,CA-ACC-0193,Canon Accessoires Eco 104,Accessoires,Canon,piece,529.38,0.33,704.08,795.01,16,145,58,2025-02-02,True
-194,HP-RÉS-0194,HP Réseau Plus 245,Réseau,HP,box,200.71,0.26,252.89,331.55,32,208,158,2025-07-23,True
-195,DE-ACC-0195,Dell Accessoires Max 806,Accessoires,Dell,piece,335.63,0.19,399.4,444.04,17,171,64,2024-06-13,True
-196,SA-INF-0196,Samsung Informatique Pro 812,Informatique,Samsung,pack,107.47,0.27,136.49,142.4,12,71,20,2023-11-30,True
-197,CA-RÉS-0197,Canon Réseau Plus 649,Réseau,Canon,pack,138.06,0.28,176.72,235.97,30,132,137,2025-04-30,True
-198,AS-CON-0198,Asus Consommables Eco 211,Consommables,Asus,piece,318.95,0.32,421.01,457.51,10,182,216,2024-09-26,True
-199,EP-BUR-0199,Epson Bureautique Standard 136,Bureautique,Epson,pack,385.66,0.11,428.08,442.01,29,106,21,2023-12-30,True
-200,CA-ACC-0200,Canon Accessoires Plus 546,Accessoires,Canon,box,299.87,0.28,383.83,447.5,7,206,96,2023-12-24,True
+product_id,name,category,current_price,cost,stock,min_price,max_price,weight_kg,is_active,supplier_id,lead_time_days,reorder_point,unit,tax_rate
+1,Product_1,Home,491.79,27.44,102,3.73,392.44,6.79,True,2,29,20,kg,0.07
+2,Product_2,Sports,202.42,162.62,421,24.86,398.8,10.5,True,18,26,8,piece,0.07
+3,Product_3,Food,409.13,164.49,191,38.44,506.14,14.67,True,6,3,8,piece,0.19
+4,Product_4,Sports,400.18,125.94,251,50.32,241.19,0.17,True,9,22,44,liter,0.0
+5,Product_5,Sports,79.61,164.44,225,85.53,333.75,9.4,False,1,6,21,box,0.19
+6,Product_6,Clothing,256.56,130.99,293,11.53,230.2,6.01,True,9,2,56,liter,0.0
+7,Product_7,Food,349.43,42.92,305,81.17,501.3,17.07,True,16,23,97,kg,0.07
+8,Product_8,Food,429.89,56.24,97,8.4,308.92,14.34,True,13,12,56,liter,0.07
+9,Product_9,Food,166.35,44.49,337,84.7,558.97,11.82,False,9,2,40,liter,0.07
+10,Product_10,Sports,114.02,76.7,285,8.01,410.63,5.62,True,13,6,42,liter,0.0
+11,Product_11,Home,357.02,9.71,334,4.77,520.3,18.22,True,9,17,54,liter,0.07
+12,Product_12,Food,405.7,124.41,346,70.61,591.57,1.0,True,11,3,67,box,0.0
+13,Product_13,Sports,177.59,68.64,434,99.73,535.92,2.28,True,4,2,67,box,0.19
+14,Product_14,Clothing,52.61,131.83,446,89.97,546.8,7.89,True,2,23,66,piece,0.0
+15,Product_15,Home,470.56,78.31,481,58.87,363.19,2.58,True,6,20,11,kg,0.19
+16,Product_16,Clothing,201.8,136.96,307,91.99,420.69,19.13,True,14,8,31,liter,0.0
+17,Product_17,Home,261.29,69.44,248,3.51,301.56,15.98,True,4,22,96,piece,0.19
+18,Product_18,Sports,419.67,53.62,165,97.58,278.45,5.25,True,6,12,90,piece,0.07
+19,Product_19,Electronics,339.47,100.22,480,50.6,402.2,11.81,True,19,26,18,piece,0.19
+20,Product_20,Home,368.93,139.19,471,73.12,438.02,19.65,True,6,4,75,box,0.07
+21,Product_21,Clothing,108.49,70.97,334,82.62,335.71,17.7,True,2,5,90,liter,0.07
+22,Product_22,Sports,273.02,187.46,29,72.69,427.78,12.06,True,18,13,9,liter,0.19
+23,Product_23,Home,349.41,9.76,246,54.9,554.98,18.08,True,13,29,59,kg,0.0
+24,Product_24,Electronics,118.13,84.75,105,49.23,422.69,19.78,True,9,15,6,liter,0.0
+25,Product_25,Electronics,91.6,193.58,50,84.34,488.33,14.89,True,19,25,66,liter,0.0
+26,Product_26,Food,491.17,110.5,80,22.89,522.13,1.39,True,13,23,95,piece,0.0
+27,Product_27,Food,260.73,85.85,132,96.9,595.49,8.09,True,11,16,25,kg,0.0
+28,Product_28,Clothing,134.11,114.57,284,71.96,441.28,16.77,True,1,10,83,liter,0.07
+29,Product_29,Home,498.15,116.03,387,22.35,522.74,4.69,False,7,25,25,box,0.0
+30,Product_30,Home,482.88,146.87,137,74.42,585.06,16.63,True,15,23,14,liter,0.07
+31,Product_31,Food,281.36,27.28,183,54.39,577.76,2.49,True,1,16,91,piece,0.07
+32,Product_32,Home,441.9,51.5,400,71.6,256.43,1.03,True,12,12,62,box,0.07
+33,Product_33,Home,98.41,116.95,329,77.47,362.56,7.74,True,7,17,43,piece,0.19
+34,Product_34,Electronics,143.04,173.69,272,11.47,329.6,0.83,True,15,16,9,liter,0.19
+35,Product_35,Food,351.68,113.25,339,52.09,234.77,19.15,False,19,12,69,box,0.07
+36,Product_36,Sports,424.1,49.24,471,93.41,453.3,16.54,True,1,8,17,kg,0.19
+37,Product_37,Food,428.88,136.61,68,34.1,494.36,16.04,True,17,20,89,kg,0.0
+38,Product_38,Sports,205.23,148.5,33,60.61,539.25,12.63,True,17,3,94,box,0.0
+39,Product_39,Electronics,444.45,49.17,261,38.82,249.11,4.4,True,3,16,89,box,0.07
+40,Product_40,Clothing,426.21,76.79,52,47.06,550.58,10.41,True,12,13,57,piece,0.0
+41,Product_41,Home,468.14,107.8,449,56.21,457.17,11.99,True,6,23,86,box,0.07
+42,Product_42,Electronics,393.74,100.32,204,56.25,481.58,10.55,True,11,28,49,piece,0.07
+43,Product_43,Home,336.15,79.14,125,22.57,564.25,5.28,True,3,19,36,liter,0.0
+44,Product_44,Clothing,292.44,60.93,234,69.4,449.9,10.35,True,8,8,40,piece,0.19
+45,Product_45,Clothing,189.28,21.8,42,11.52,334.35,9.87,True,14,22,85,box,0.0
+46,Product_46,Electronics,470.37,12.59,239,16.47,530.04,19.93,True,14,5,64,box,0.0
+47,Product_47,Clothing,486.96,191.79,458,3.26,345.22,17.96,True,10,20,15,liter,0.07
+48,Product_48,Sports,145.54,169.73,370,14.32,213.69,9.32,True,2,8,67,box,0.07
+49,Product_49,Clothing,156.16,72.27,110,48.9,532.26,12.5,True,14,24,25,box,0.07
+50,Product_50,Home,245.38,191.45,248,61.79,338.08,14.98,True,9,12,56,kg,0.07
+51,Product_51,Home,226.97,136.0,150,80.05,509.53,0.79,True,3,1,59,kg,0.19
+52,Product_52,Home,497.26,97.54,182,13.35,345.1,17.91,True,8,25,30,liter,0.19
+53,Product_53,Home,92.08,99.62,335,85.52,544.43,17.22,True,16,21,72,piece,0.19
+54,Product_54,Sports,13.95,18.49,94,75.36,287.8,9.2,True,2,20,38,kg,0.07
+55,Product_55,Food,249.48,20.16,458,42.63,589.82,7.88,True,6,6,56,piece,0.07
+56,Product_56,Electronics,93.52,121.28,373,93.49,511.9,5.53,True,12,22,86,box,0.07
+57,Product_57,Home,186.4,111.63,399,99.12,245.7,9.59,True,5,18,97,kg,0.19
+58,Product_58,Clothing,373.36,44.12,7,22.89,426.31,0.98,True,2,8,56,liter,0.07
+59,Product_59,Home,361.87,189.35,387,39.79,594.15,17.06,True,16,7,33,liter,0.0
+60,Product_60,Clothing,157.49,156.7,359,92.87,388.43,0.8,True,5,1,42,liter,0.0
+61,Product_61,Clothing,273.56,24.47,387,72.99,272.84,6.65,True,15,21,46,kg,0.07
+62,Product_62,Home,256.86,186.32,183,7.67,393.91,18.64,True,12,16,25,piece,0.0
+63,Product_63,Sports,319.98,194.9,280,78.81,404.98,14.73,True,4,12,46,box,0.0
+64,Product_64,Clothing,128.98,199.19,194,83.31,496.67,5.7,True,15,6,17,piece,0.19
+65,Product_65,Clothing,296.99,13.06,351,75.8,479.54,5.13,True,11,20,68,piece,0.07
+66,Product_66,Home,489.55,147.93,194,80.56,361.02,0.2,True,16,2,21,box,0.07
+67,Product_67,Clothing,245.94,110.09,154,83.04,287.21,13.94,True,6,29,13,box,0.19
+68,Product_68,Clothing,453.52,141.75,92,21.08,458.02,1.07,True,14,14,45,kg,0.0
+69,Product_69,Home,220.03,193.79,159,25.86,368.68,10.7,True,18,4,5,kg,0.0
+70,Product_70,Home,178.29,138.23,433,64.47,252.91,19.25,True,12,1,6,kg,0.07
+71,Product_71,Electronics,324.33,167.72,60,91.06,560.23,2.28,True,11,23,64,kg,0.0
+72,Product_72,Sports,336.12,173.64,121,33.67,476.49,17.9,True,13,18,52,kg,0.19
+73,Product_73,Sports,432.76,168.02,50,60.07,473.27,19.83,True,11,13,33,box,0.19
+74,Product_74,Clothing,118.94,86.37,402,69.25,529.03,1.32,True,16,2,14,piece,0.07
+75,Product_75,Sports,252.1,46.07,276,46.84,411.86,17.67,True,15,9,62,kg,0.19
+76,Product_76,Clothing,288.14,80.54,4,72.24,526.02,10.37,True,15,21,64,kg,0.19
+77,Product_77,Electronics,385.43,178.6,465,90.27,399.24,18.14,True,4,2,25,piece,0.07
+78,Product_78,Home,26.58,31.03,91,63.54,226.87,11.47,True,11,27,32,kg,0.19
+79,Product_79,Home,497.3,103.64,169,55.36,362.1,13.28,True,19,25,79,piece,0.19
+80,Product_80,Home,237.62,48.18,316,45.56,398.99,10.92,False,15,9,38,piece,0.19
+81,Product_81,Sports,143.38,117.1,21,59.02,488.08,17.3,True,4,1,12,box,0.0
+82,Product_82,Electronics,442.33,172.9,404,37.47,242.63,14.7,True,13,11,63,liter,0.07
+83,Product_83,Sports,375.12,176.31,325,40.97,256.01,10.47,True,19,3,90,box,0.07
+84,Product_84,Sports,476.77,48.86,0,54.59,305.47,17.38,True,2,20,76,liter,0.07
+85,Product_85,Electronics,168.72,181.72,132,9.46,306.6,4.98,True,14,23,53,liter,0.0
+86,Product_86,Electronics,278.62,119.19,232,25.22,492.87,3.23,True,4,26,83,liter,0.0
+87,Product_87,Electronics,288.28,71.34,11,55.66,300.29,3.29,True,16,4,21,kg,0.07
+88,Product_88,Electronics,490.26,142.22,345,44.86,453.24,6.75,True,14,18,64,box,0.0
+89,Product_89,Home,42.3,97.37,45,35.28,397.71,4.85,True,15,23,91,liter,0.07
+90,Product_90,Food,156.32,76.84,33,73.86,429.32,18.61,True,3,6,92,piece,0.0
+91,Product_91,Food,99.5,141.61,432,70.29,535.24,2.21,True,8,3,49,kg,0.19
+92,Product_92,Electronics,137.9,51.25,77,19.17,361.75,14.01,True,16,22,87,box,0.19
+93,Product_93,Food,245.21,67.39,217,88.23,508.36,3.87,True,10,11,73,liter,0.07
+94,Product_94,Food,189.48,88.02,300,51.06,368.81,17.64,True,4,15,36,piece,0.0
+95,Product_95,Electronics,200.37,52.23,410,74.92,341.55,19.23,True,18,22,48,box,0.0
+96,Product_96,Food,422.89,82.23,72,58.6,583.45,9.36,False,2,28,69,box,0.19
+97,Product_97,Sports,465.36,115.15,281,99.78,273.75,17.59,True,17,5,91,kg,0.19
+98,Product_98,Clothing,39.86,148.71,248,75.98,236.13,0.2,True,13,20,12,box,0.0
+99,Product_99,Clothing,108.41,153.9,46,71.58,508.39,16.42,True,4,10,81,kg,0.0
+100,Product_100,Electronics,337.22,164.91,120,78.52,227.3,4.65,True,11,12,76,liter,0.0
+101,Product_101,Home,182.53,149.35,213,16.88,534.83,18.18,True,7,15,91,kg,0.0
+102,Product_102,Electronics,130.81,136.85,238,22.84,374.88,0.12,True,12,17,47,piece,0.0
+103,Product_103,Home,151.17,49.03,55,72.26,566.21,11.17,True,10,10,5,kg,0.0
+104,Product_104,Clothing,164.66,81.24,349,50.92,488.61,15.16,True,7,6,55,piece,0.07
+105,Product_105,Electronics,425.09,96.59,106,76.2,444.16,5.25,True,13,18,28,kg,0.0
+106,Product_106,Sports,72.63,18.41,318,12.98,579.72,3.94,True,7,13,28,box,0.19
+107,Product_107,Food,355.91,106.62,47,55.04,358.66,1.77,True,17,3,21,liter,0.07
+108,Product_108,Home,278.65,88.39,60,39.75,581.63,6.6,True,10,24,9,piece,0.0
+109,Product_109,Food,151.77,160.82,336,47.33,254.0,11.24,True,10,10,24,kg,0.19
+110,Product_110,Food,212.79,195.62,25,61.58,393.5,2.41,True,4,14,25,kg,0.07
+111,Product_111,Electronics,131.82,112.09,291,51.72,307.96,7.6,True,4,6,62,kg,0.19
+112,Product_112,Food,307.7,65.89,256,55.37,415.94,0.28,True,7,3,35,box,0.0
+113,Product_113,Sports,45.39,10.59,7,50.18,264.81,16.39,True,1,16,15,box,0.0
+114,Product_114,Food,7.57,185.08,112,42.67,536.61,2.66,True,12,7,56,piece,0.0
+115,Product_115,Electronics,315.81,183.98,354,77.87,538.56,5.74,True,13,20,19,piece,0.0
+116,Product_116,Sports,101.17,52.09,252,4.18,582.09,0.47,True,10,14,87,box,0.07
+117,Product_117,Clothing,40.12,139.69,179,61.05,261.87,8.7,True,15,9,11,piece,0.07
+118,Product_118,Food,201.41,16.94,206,57.85,449.33,16.82,True,13,15,32,liter,0.19
+119,Product_119,Electronics,30.13,34.91,302,72.47,389.69,7.9,True,9,21,55,liter,0.0
+120,Product_120,Clothing,443.88,44.93,126,61.11,337.75,3.67,True,9,3,62,box,0.19
+121,Product_121,Clothing,18.67,60.31,55,83.2,340.62,15.1,True,15,2,9,piece,0.07
+122,Product_122,Home,291.54,199.17,213,96.03,365.12,15.8,True,10,27,9,kg,0.0
+123,Product_123,Sports,222.04,139.99,13,36.22,481.97,3.56,True,10,2,98,liter,0.0
+124,Product_124,Food,337.65,78.07,473,25.05,439.31,15.44,True,8,3,12,box,0.07
+125,Product_125,Electronics,167.44,147.95,27,44.09,383.87,18.95,True,16,18,68,piece,0.07
+126,Product_126,Home,81.75,183.22,470,30.93,230.37,3.41,True,17,14,14,box,0.07
+127,Product_127,Sports,491.01,191.82,77,62.65,231.11,15.44,True,5,20,42,kg,0.07
+128,Product_128,Home,420.27,13.46,215,91.45,200.94,14.2,True,4,18,96,liter,0.07
+129,Product_129,Sports,430.9,80.12,385,16.49,587.08,9.52,True,18,10,85,box,0.0
+130,Product_130,Sports,128.87,23.14,364,12.78,202.1,1.25,True,19,25,99,box,0.07
+131,Product_131,Food,24.22,68.46,153,27.83,241.24,1.59,True,4,2,12,box,0.0
+132,Product_132,Sports,155.12,35.6,13,73.43,325.84,17.06,True,7,25,29,kg,0.0
+133,Product_133,Home,270.86,130.08,186,60.52,522.97,19.8,True,10,29,77,box,0.07
+134,Product_134,Sports,166.69,78.88,311,12.91,584.84,13.55,True,18,22,70,kg,0.07
+135,Product_135,Food,414.8,47.42,370,92.12,516.01,8.97,True,19,1,83,kg,0.0
+136,Product_136,Food,139.41,54.66,6,79.64,476.22,12.99,True,4,4,54,kg,0.07
+137,Product_137,Home,482.8,73.35,2,5.23,408.52,11.93,True,10,14,71,liter,0.07
+138,Product_138,Clothing,231.35,53.47,110,66.18,234.68,7.73,True,1,1,53,liter,0.07
+139,Product_139,Clothing,421.8,91.74,406,77.81,583.27,1.41,True,18,14,40,box,0.19
+140,Product_140,Sports,101.22,8.4,237,39.32,503.36,16.45,True,5,16,72,box,0.0
+141,Product_141,Electronics,208.62,57.39,362,9.69,455.58,7.5,True,15,22,82,liter,0.19
+142,Product_142,Sports,351.26,83.42,238,10.5,503.61,16.39,True,17,14,45,piece,0.07
+143,Product_143,Home,73.48,121.35,492,13.11,489.64,5.12,True,3,29,93,liter,0.19
+144,Product_144,Home,70.71,55.65,273,84.52,454.89,0.12,True,12,20,66,kg,0.07
+145,Product_145,Home,484.92,28.37,293,91.34,592.23,3.26,True,2,3,14,liter,0.19
+146,Product_146,Home,358.72,17.09,226,14.91,561.35,9.42,True,1,3,25,kg,0.07
+147,Product_147,Home,25.33,188.23,370,25.88,458.67,18.89,True,17,9,40,box,0.19
+148,Product_148,Food,202.42,84.49,14,19.06,477.27,2.13,True,16,6,16,piece,0.19
+149,Product_149,Clothing,219.59,117.07,191,21.07,220.64,17.1,True,5,25,95,box,0.19
+150,Product_150,Home,373.3,184.0,472,84.24,467.97,10.59,False,15,13,6,kg,0.0
+151,Product_151,Electronics,129.18,18.38,118,35.22,217.67,16.54,True,3,21,17,kg,0.19
+152,Product_152,Electronics,96.25,175.58,484,33.21,435.31,6.04,True,7,2,57,kg,0.0
+153,Product_153,Electronics,45.03,111.21,27,25.06,599.74,16.81,True,11,8,36,piece,0.07
+154,Product_154,Electronics,217.02,34.64,201,61.97,422.32,15.48,True,10,21,99,liter,0.19
+155,Product_155,Food,345.81,83.43,38,39.79,389.28,4.68,True,9,2,20,box,0.07
+156,Product_156,Electronics,33.81,155.97,440,75.19,325.14,2.71,True,14,4,36,box,0.07
+157,Product_157,Home,458.03,97.11,272,22.94,248.21,17.37,True,13,25,36,liter,0.19
+158,Product_158,Sports,223.96,197.09,230,79.42,492.41,19.27,True,2,15,15,box,0.0
+159,Product_159,Electronics,123.69,76.59,85,61.56,277.04,0.72,True,3,4,14,piece,0.19
+160,Product_160,Food,51.47,150.42,473,14.08,246.11,14.65,True,7,13,19,box,0.07
+161,Product_161,Food,95.52,79.81,125,43.21,368.71,18.2,True,18,28,21,kg,0.07
+162,Product_162,Electronics,467.63,166.17,299,86.76,518.14,17.16,True,3,12,44,liter,0.19
+163,Product_163,Sports,320.94,114.68,24,92.53,498.03,19.29,True,10,28,22,piece,0.0
+164,Product_164,Electronics,260.76,14.58,144,48.17,221.95,15.23,True,7,13,59,liter,0.0
+165,Product_165,Food,330.27,9.29,12,49.64,382.06,8.9,True,9,14,77,piece,0.07
+166,Product_166,Clothing,220.66,28.5,211,92.09,408.97,6.31,False,17,20,29,kg,0.07
+167,Product_167,Home,366.37,4.71,24,59.95,457.82,6.48,True,11,18,63,liter,0.0
+168,Product_168,Food,28.62,16.92,67,6.19,460.07,14.52,True,7,29,82,box,0.19
+169,Product_169,Electronics,285.19,138.96,393,91.54,345.88,14.94,True,14,28,93,piece,0.07
+170,Product_170,Home,83.53,107.8,66,27.08,424.27,4.09,True,19,6,26,liter,0.0
+171,Product_171,Electronics,64.48,150.48,232,59.03,392.42,17.38,True,4,29,34,box,0.07
+172,Product_172,Electronics,174.23,182.81,108,19.05,554.0,14.33,True,6,11,88,liter,0.19
+173,Product_173,Clothing,50.44,117.86,145,6.29,412.11,11.3,True,10,2,89,liter,0.0
+174,Product_174,Home,51.61,145.77,110,33.21,376.41,9.48,True,7,28,48,liter,0.07
+175,Product_175,Home,159.15,151.9,227,78.71,361.79,10.91,True,13,23,36,piece,0.19
+176,Product_176,Clothing,489.86,76.81,110,29.93,428.97,3.27,True,14,19,55,box,0.07
+177,Product_177,Food,91.79,49.73,469,24.35,521.59,4.15,True,4,19,50,kg,0.19
+178,Product_178,Electronics,13.49,42.6,33,23.63,415.36,1.91,True,8,5,25,piece,0.19
+179,Product_179,Sports,382.87,51.79,110,52.97,464.66,3.16,True,5,19,36,piece,0.0
+180,Product_180,Electronics,404.42,56.4,263,97.63,495.14,9.13,True,1,2,98,piece,0.19
+181,Product_181,Electronics,176.42,43.03,423,47.52,408.07,10.65,True,4,10,43,kg,0.07
+182,Product_182,Food,235.01,175.89,368,57.06,370.73,0.46,False,3,25,16,box,0.19
+183,Product_183,Electronics,326.64,151.89,235,86.48,550.67,15.96,True,9,2,51,box,0.19
+184,Product_184,Clothing,28.79,11.29,82,54.9,367.0,5.95,True,8,11,22,box,0.0
+185,Product_185,Clothing,474.83,55.2,41,20.89,384.78,18.25,False,1,18,25,liter,0.19
+186,Product_186,Home,443.91,6.39,424,32.06,596.14,19.35,True,6,29,17,liter,0.19
+187,Product_187,Sports,134.14,100.64,100,33.06,200.1,3.79,True,9,24,25,liter,0.07
+188,Product_188,Electronics,12.58,96.29,5,41.54,274.19,9.3,True,7,15,12,kg,0.0
+189,Product_189,Electronics,467.05,166.61,179,44.4,353.59,0.12,True,4,9,50,liter,0.0
+190,Product_190,Food,253.01,62.94,281,80.58,573.04,12.01,True,13,23,11,kg,0.0
+191,Product_191,Clothing,271.99,163.64,319,36.89,228.01,12.19,True,17,19,27,box,0.19
+192,Product_192,Sports,343.56,193.66,225,48.42,203.79,5.03,True,2,9,79,liter,0.0
+193,Product_193,Home,309.85,19.5,442,63.62,221.07,11.21,True,5,3,90,liter,0.19
+194,Product_194,Clothing,472.23,158.78,439,39.64,235.42,4.59,True,12,21,26,piece,0.19
+195,Product_195,Home,472.4,118.81,314,84.15,215.04,3.3,True,8,9,93,kg,0.07
+196,Product_196,Food,434.26,97.05,364,59.98,391.91,13.07,True,6,28,26,box,0.07
+197,Product_197,Food,320.02,85.27,453,31.52,432.3,6.59,True,8,14,96,piece,0.07
+198,Product_198,Electronics,401.47,157.36,228,72.26,308.67,11.85,True,18,19,33,piece,0.07
+199,Product_199,Sports,340.2,128.59,376,54.18,359.31,8.72,True,3,7,17,box,0.07
+200,Product_200,Home,288.82,161.4,288,54.84,236.68,19.69,True,12,16,86,piece,0.19
