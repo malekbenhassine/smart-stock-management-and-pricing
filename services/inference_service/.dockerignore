@@ -1,0 +1,17 @@
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+.venv
+venv
+env
+Include
+Lib
+Scripts
+pyvenv.cfg
+.git
+.ipynb_checkpoints
+*.csv
+*.zip
+data
+datasets

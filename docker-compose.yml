@@ -1,0 +1,118 @@
+version: "3.9"
+
+services:
+  postgres_csv_import:
+    image: postgres:15
+    container_name: postgres_csv_import
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: csv_import_db
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5433:5432"
+    volumes:
+      - postgres_csv_import_data:/var/lib/postgresql/data
+    networks:
+      - smart_network
+
+  postgres_stock:
+    image: postgres:15
+    container_name: postgres_stock
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: stock_db
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5434:5432"
+    volumes:
+      - postgres_stock_data:/var/lib/postgresql/data
+    networks:
+      - smart_network
+
+  postgres_inference:
+    image: postgres:15
+    container_name: postgres_inference
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: inference_db
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5435:5432"
+    volumes:
+      - postgres_inference_data:/var/lib/postgresql/data
+    networks:
+      - smart_network
+
+  csv_import_service:
+    build:
+      context: ./services/csv_import_service
+    container_name: csv_import_service
+    restart: unless-stopped
+    depends_on:
+      - postgres_csv_import
+      - stock_service
+      - inference_service
+    environment:
+      DB_HOST: postgres_csv_import
+      DB_PORT: 5432
+      DB_NAME: csv_import_db
+      DB_USER: postgres
+      DB_PASS: postgres
+      STOCK_SERVICE_URL: http://stock_service:2004
+      INFERENCE_SERVICE_URL: http://inference_service:8020
+    ports:
+      - "8030:8030"
+    networks:
+      - smart_network
+
+  stock_service:
+    build:
+      context: ./services/stock_service
+    container_name: stock_service
+    restart: unless-stopped
+    depends_on:
+      - postgres_stock
+    environment:
+      DB_HOST: postgres_stock
+      DB_PORT: 5432
+      DB_NAME: stock_db
+      DB_USER: postgres
+      DB_PASSWORD: postgres
+    ports:
+      - "2004:2004"
+    networks:
+      - smart_network
+
+  inference_service:
+    build:
+      context: ./services/inference_service
+    container_name: inference_service
+    restart: unless-stopped
+    depends_on:
+      - postgres_inference
+      - stock_service
+    environment:
+      DB_HOST: postgres_inference
+      DB_PORT: 5432
+      DB_NAME: inference_db
+      DB_USER: postgres
+      DB_PASSWORD: postgres
+      STOCK_SERVICE_URL: http://stock_service:2004
+      DEFAULT_STORE_ID: STORE_Nord
+      DEFAULT_REGION: UNKNOWN
+    ports:
+      - "8020:8020"
+    networks:
+      - smart_network
+
+volumes:
+  postgres_csv_import_data:
+  postgres_stock_data:
+  postgres_inference_data:
+
+networks:
+  smart_network:
+    driver: bridge

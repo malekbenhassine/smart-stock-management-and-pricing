@@ -6,7 +6,7 @@ from .api.routes.csv_import import router as import_router
 
 app = FastAPI(
     title="CSV Import Service",
-    description="Upload des fichiers CSV → PostgreSQL (smart_postgres) + déclenchement ML",
+    description="Upload des fichiers CSV vers la base dédiée du csv_import_service + déclenchement ML",
     version="1.0.0",
 )
 
@@ -30,4 +30,3 @@ app.include_router(import_router)
 @app.get("/health")
 def health():
     return {"status": "ok", "service": "csv_import_service"}
-#nrmlmt fi routes 

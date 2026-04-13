@@ -1,9 +1,11 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from .core.database import init_db
 from .api.routes.health import router as health_router
 from .api.routes.products import router as products_router
-
+from .api.routes.bulk_imports import router as bulk_router
+from .api.routes.sales_history import router as sales_history_router
 app = FastAPI(title="stock-service")
 
 app.add_middleware(
@@ -17,5 +19,13 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
+@app.on_event("startup")
+def startup():
+    init_db()
+
+
 app.include_router(health_router)
 app.include_router(products_router)
+app.include_router(bulk_router)
+app.include_router(sales_history_router)

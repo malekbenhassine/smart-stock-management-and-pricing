@@ -1,5 +1,9 @@
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Query, Depends
+from sqlalchemy.orm import Session
 
+from ...core.database import get_db
+from ...models.tables import Product
+from ...schemas.schemas import ProductIn
 from ...services.product_service import (
     get_all_products,
     get_product_by_id_service,
@@ -31,3 +35,35 @@ def get_product_pricing_details(product_id: int):
 @router.get("/{product_id}/stock-details")
 def get_product_stock_details(product_id: int):
     return get_product_stock_details_service(product_id)
+
+
+@router.post("/bulk")
+def bulk_import_products(items: list[ProductIn], db: Session = Depends(get_db)):
+    count = 0
+
+    for item in items:
+        obj = db.query(Product).filter(Product.id == item.id).first()
+        if not obj:
+            obj = Product(id=item.id)
+            db.add(obj)
+
+        obj.sku = item.sku
+        obj.nom = item.nom
+        obj.categorie = item.categorie
+        obj.marque = item.marque
+        obj.description = item.description
+        obj.prix_cout = item.prixcout
+        obj.prix_vente = item.prixvente
+        obj.marge_reservee = item.margereservee
+        obj.stock_disponible = item.stockdisponible
+        obj.stock_reserve = item.stockreserve
+        obj.stock_minimum = item.stockminimum
+        obj.seuil_max = item.seuilmax
+        obj.seuil_min = item.seuilmin
+        obj.statut = item.statut
+        obj.date_debut_observation = item.datedebutobservation
+        obj.date_fin_observation = item.datefinobservation
+        count += 1
+
+    db.commit()
+    return {"status": "success", "rows": count}
