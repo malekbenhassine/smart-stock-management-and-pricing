@@ -13,10 +13,9 @@ def recommend_promo_service(product_id: int, db: Session) -> dict:
     price_result = recommend_price_service(req, db)
     restock_result = recommend_restock_service(req, db)
 
-    current_price = float(product.get("current_price", 0.0))
-    threshold_max = float(product.get("threshold_max", 0.0))
-    current_stock = float(product.get("current_stock", 0.0))
-
+    current_price = float(req.price or 0.0)
+    threshold_max = float(req.threshold_max or 0.0)
+    current_stock = float(req.stock or 0.0)
     should_promote = False
     recommended_discount = 0.0
     reason_parts = []

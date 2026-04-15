@@ -1,4 +1,5 @@
 from sqlalchemy.orm import Session
+from app.services.request_builder import build_request_from_product
 
 from app.services.stock_client import (
     get_product_from_stock_service,
@@ -14,11 +15,14 @@ def _score_to_severity(score: float) -> str:
 def detect_anomalies_service(product_id: int, db: Session) -> dict:
     product = get_product_from_stock_service(product_id)
 
-    current_stock = float(product.get("current_stock", 0.0))
-    current_price = float(product.get("current_price", 0.0))
-    threshold_min = float(product.get("threshold_min", 0.0))
-    threshold_max = float(product.get("threshold_max", 0.0))
 
+    req = build_request_from_product(product)
+
+    current_stock = float(req.stock or 0.0)
+    current_price = float(req.price or 0.0)
+    threshold_min = float(req.threshold_min or 0.0)
+    threshold_max = float(req.threshold_max or 0.0)
+    
     sku = str(product.get("sku") or product.get("product_id") or product.get("id"))
     history_rows = get_recent_history_from_stock_service(product_id=sku, limit=30)
 

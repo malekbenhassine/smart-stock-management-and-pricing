@@ -6,43 +6,40 @@ from ..core.database import SessionLocal
 from ..models.tables import Product
 
 
-def get_all_products(q: str | None = None, limit: int = 100):
-    db: Session = SessionLocal()
-    try:
-        query = db.query(Product)
+def get_all_products(db: Session, q: str | None = None):
+    query = db.query(Product)
 
-        if q:
-            search = f"%{q}%"
-            query = query.filter(
-                or_(
-                    Product.nom.ilike(search),
-                    Product.sku.ilike(search),
-                    Product.marque.ilike(search),
-                    Product.categorie.ilike(search),
-                )
+    if q:
+        search = f"%{q}%"
+        query = query.filter(
+            or_(
+                Product.nom.ilike(search),
+                Product.sku.ilike(search),
+                Product.marque.ilike(search),
+                Product.categorie.ilike(search),
             )
+        )
 
-        rows = query.limit(limit).all()
+    rows = query.all()
 
-        return [
-            {
-                "id": p.id,
-                "sku": p.sku,
-                "nom": p.nom,
-                "categorie": p.categorie,
-                "marque": p.marque,
-                "prixVente": p.prix_vente,
-                "prixCout": p.prix_cout,
-                "stockDisponible": p.stock_disponible,
-                "stockReserve": p.stock_reserve,
-                "seuilMin": p.seuil_min,
-                "seuilMax": p.seuil_max,
-                "statut": p.statut,
-            }
-            for p in rows
-        ]
-    finally:
-        db.close()
+    return [
+        {
+            "id": p.id,
+            "sku": p.sku,
+            "nom": p.nom,
+            "categorie": p.categorie,
+            "marque": p.marque,
+            "prixVente": p.prix_vente,
+            "prixCout": p.prix_cout,
+            "stockDisponible": p.stock_disponible,
+            "stockReserve": p.stock_reserve,
+            "seuilMin": p.seuil_min,
+            "seuilMax": p.seuil_max,
+            "statut": p.statut,
+        }
+        for p in rows
+    ]
+
 
 
 def get_product_by_id_service(product_id: int):

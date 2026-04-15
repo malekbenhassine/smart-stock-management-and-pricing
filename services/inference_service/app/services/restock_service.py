@@ -2,7 +2,7 @@ import numpy as np
 import pandas as pd
 from datetime import timedelta
 from sqlalchemy.orm import Session
-
+from app.services.explanation_builder import build_restock_explanation
 from app.database import PredictionLog
 from app.services.stock_client import get_recent_history_from_stock_service
 from app.schemas import BaseRequest, RestockResponse
@@ -74,9 +74,15 @@ def recommend_restock_service(req: BaseRequest, db: Session) -> RestockResponse:
         else:
             urgency = "low"
 
-        reasoning = (
-            f"Recommandation basée sur règle métier (historique insuffisant). "
-            f"Seuil min={threshold_min:.0f}, seuil max={threshold_max:.0f}."
+        reasoning = build_restock_explanation(
+            current_stock=req.stock,
+            predicted_demand=avg_daily_demand,
+            recommended_qty=recommended_qty,
+            days_remaining=days_remaining,
+            urgency=urgency,
+            threshold_min=threshold_min,
+            threshold_max=threshold_max,
+            used_rule_based=True,
         )
 
         log = PredictionLog(

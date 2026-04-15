@@ -41,16 +41,16 @@ def dashboard_recommendations_service(db: Session) -> dict:
             restock = recommend_restock_service(req, db)
             price = recommend_price_service(req, db)
 
-            current_price = float(product.get("current_price", 0.0))
+            current_price = float(product.get("prixVente") or product.get("current_price") or 0.0)
             price_changed = abs(price.recommended_price - current_price) > 0.01
 
             recommendations.append({
-                "product_id": product.get("product_id"),
-                "name": product.get("name"),
+                "product_id": product.get("id") or product.get("product_id"),
+                "name": product.get("nom") or product.get("name"),
                 "sku": product.get("sku"),
-                "category": product.get("category"),
-                "current_stock": product.get("current_stock"),
-                "current_price": current_price,
+                "category": product.get("categorie") or product.get("category"),
+                "current_stock": product.get("stockDisponible") or product.get("current_stock"),
+                "current_price": float(product.get("prixVente") or product.get("current_price") or 0.0),
                 "forecast_weekly_demand": round(demand.predicted_demand, 2),
                 "restock_needed": restock.restock_needed,
                 "recommended_restock_qty": restock.recommended_order_qty,

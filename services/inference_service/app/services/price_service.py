@@ -8,6 +8,7 @@ from app.schemas import BaseRequest, PricingResponse
 from app.model_loader import get_model
 from app.feature_builder import build_features
 from app.core.config import MAX_PRICE_CHANGE
+from app.services.explanation_builder import build_price_explanation
 
 
 def _predict_demand_for_price(
@@ -41,13 +42,15 @@ def recommend_price_service(req: BaseRequest, db: Session) -> PricingResponse:
     current_stock = float(req.stock)
     threshold_min = float(req.threshold_min or 0.0)
     threshold_max = float(req.threshold_max or 0.0)
-    min_price     = float(req.min_price)   if req.min_price   is not None else current_price
-    cost_price    = float(req.cost_price)  if req.cost_price  is not None else 0.0
-    safe_floor    = max(min_price, cost_price)
+    min_price = float(req.min_price) if req.min_price is not None else current_price
+    cost_price = float(req.cost_price) if req.cost_price is not None else 0.0
+    min_margin = float(req.min_margin) if getattr(req, "min_margin", None) is not None else 0.0
 
-    # ── Fallback : historique insuffisant ────────────────────────────────────
+    safe_floor = max(min_price, cost_price)
+
+    # Fallback : historique insuffisant
     history_count = len(
-    get_recent_history_from_stock_service(product_id=req.product_id, limit=30)
+        get_recent_history_from_stock_service(product_id=req.product_id, limit=30)
     )
 
     if history_count < 14:
@@ -56,26 +59,24 @@ def recommend_price_service(req: BaseRequest, db: Session) -> PricingResponse:
             "Prix actuel conservé : historique réel insuffisant pour une recommandation fiable."
         )
 
-        # Ajustement prudent basé sur le stock uniquement
         if threshold_max > 0:
             overstock_ratio = current_stock / threshold_max
 
             if overstock_ratio >= 1.35:
-                candidate = round(current_price * 0.95, 2)          # ‑5 %
+                candidate = round(current_price * 0.95, 2)
                 recommended_price = max(safe_floor, candidate)
                 reasoning = (
                     "Baisse modérée recommandée : surstock important avec historique insuffisant. "
                     "Réduction prudente tout en respectant le prix minimum."
                 )
             elif overstock_ratio >= 1.15:
-                candidate = round(current_price * 0.98, 2)          # ‑2 %
+                candidate = round(current_price * 0.98, 2)
                 recommended_price = max(safe_floor, candidate)
                 reasoning = (
                     "Baisse légère recommandée : stock élevé avec historique insuffisant. "
                     "Réduction prudente pour favoriser l'écoulement."
                 )
 
-        # Stock faible : on ne touche pas au prix
         if threshold_min > 0 and current_stock <= threshold_min:
             recommended_price = current_price
             reasoning = (
@@ -100,11 +101,10 @@ def recommend_price_service(req: BaseRequest, db: Session) -> PricingResponse:
             reasoning=reasoning,
         )
 
-    # ── Recommandation ML (historique suffisant) ─────────────────────────────
+    # Recommandation ML
     min_price_ml = current_price * (1 - MAX_PRICE_CHANGE)
     max_price_ml = current_price * (1 + MAX_PRICE_CHANGE)
 
-    # Respecter le plancher métier même dans la grille ML
     min_price_ml = max(min_price_ml, safe_floor)
 
     price_grid = np.linspace(min_price_ml, max_price_ml, 21)
@@ -113,23 +113,26 @@ def recommend_price_service(req: BaseRequest, db: Session) -> PricingResponse:
         model, trained_features, use_log, db, req, current_price
     )
 
-    best_price   = current_price
+    best_price = current_price
     best_revenue = current_price * demand_at_current
-    best_demand  = demand_at_current
+    best_demand = demand_at_current
 
     for test_price in price_grid:
         test_price = round(float(test_price), 2)
-        demand  = _predict_demand_for_price(model, trained_features, use_log, db, req, test_price)
+        demand = _predict_demand_for_price(
+            model, trained_features, use_log, db, req, test_price
+        )
         revenue = test_price * demand
+
         if revenue > best_revenue:
             best_revenue = revenue
-            best_price   = test_price
-            best_demand  = demand
+            best_price = test_price
+            best_demand = demand
 
-    best_price   = float(round(best_price,   2))
-    best_demand  = float(round(best_demand,  1))
+    best_price = float(round(best_price, 2))
+    best_demand = float(round(best_demand, 1))
     demand_at_current = float(round(demand_at_current, 1))
-    change_pct   = float(round((best_price - current_price) / current_price * 100, 2))
+    change_pct = float(round((best_price - current_price) / current_price * 100, 2))
 
     if abs(change_pct) < 1.0:
         reasoning = "Le prix actuel est déjà proche de l'optimal."
@@ -159,3 +162,60 @@ def recommend_price_service(req: BaseRequest, db: Session) -> PricingResponse:
         predicted_demand_at_recommended_price=best_demand,
         reasoning=reasoning,
     )
+
+
+def build_price_recommendation_response(product: dict, result: PricingResponse) -> dict:
+    current_price = float(result.current_price)
+    recommended_price_raw = float(result.recommended_price)
+    predicted_current = float(result.predicted_demand_at_current_price or 0.0)
+    predicted_recommended = float(result.predicted_demand_at_recommended_price or 0.0)
+
+    cost_price = float(product.get("cost_price", 0.0))
+    min_margin = float(product.get("min_margin", 0.0))
+
+    if cost_price > 0:
+        min_allowed_price = round(cost_price * (1 + min_margin), 2)
+    else:
+        min_allowed_price = round(current_price * 0.8, 2)
+
+    final_recommended_price = max(round(recommended_price_raw, 2), min_allowed_price)
+
+    direction = (
+        "UP" if final_recommended_price > current_price
+        else "DOWN" if final_recommended_price < current_price
+        else "STABLE"
+    )
+
+    explanation = build_price_explanation(
+        current_price=current_price,
+        recommended_price=final_recommended_price,
+        predicted_demand=predicted_recommended,
+        price_direction=direction,
+    )
+
+    current_margin_per_unit = max(current_price - cost_price, 0.0)
+    recommended_margin_per_unit = max(final_recommended_price - cost_price, 0.0)
+
+    current_margin_week = current_margin_per_unit * predicted_current
+    recommended_margin_week = recommended_margin_per_unit * predicted_recommended
+
+    estimated_margin_impact_week = round(
+        recommended_margin_week - current_margin_week, 2
+    )
+
+    return {
+        "product_id": result.product_id,
+        "recommended_price": final_recommended_price,
+        "interval": {
+            "low": min_allowed_price,
+            "high": round(current_price * 1.2, 2),
+        },
+        "direction": direction,
+        "demand_weekly": {
+            "p10": round(predicted_recommended * 0.85, 2),
+            "p50": round(predicted_recommended, 2),
+            "p90": round(predicted_recommended * 1.15, 2),
+        },
+        "estimated_margin_impact_week": estimated_margin_impact_week,
+        "explanation": explanation,
+    }

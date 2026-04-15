@@ -6,7 +6,7 @@ from app.services.demand_service import forecast_demand_service
 from app.services.restock_service import recommend_restock_service
 from app.services.stock_risk_service import predict_stock_risk_service
 from app.services.anomaly_service import detect_anomalies_service
-
+from app.services.explanation_builder import build_demand_explanation
 
 def get_stock_details_service(product_id: int, db: Session) -> dict:
     product = get_product_from_stock_service(product_id)
@@ -21,9 +21,9 @@ def get_stock_details_service(product_id: int, db: Session) -> dict:
         "p10": demand.confidence_low,
         "p50": demand.predicted_demand,
         "p90": demand.confidence_high,
-        "explanation": (
-            f"Prévision calculée à partir de l’historique disponible "
-            f"({demand.history_days_used} jour(s) utilisé(s))."
+        "explanation": build_demand_explanation(
+            predicted_demand=demand.predicted_demand,
+            history_days_used=demand.history_days_used,
         ),
     }
 

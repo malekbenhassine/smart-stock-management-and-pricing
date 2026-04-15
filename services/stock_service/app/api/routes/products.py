@@ -1,6 +1,7 @@
-from fastapi import APIRouter, Query, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
+from app.services.kpi_service import get_product_kpis_service
 from ...core.database import get_db
 from ...models.tables import Product
 from ...schemas.schemas import ProductIn
@@ -15,11 +16,8 @@ router = APIRouter(prefix="/products", tags=["products"])
 
 
 @router.get("")
-def get_products(
-    q: str | None = Query(default=None, description="Recherche par nom, SKU, marque ou catégorie"),
-    limit: int = Query(default=100, ge=1, le=500),
-):
-    return get_all_products(q=q, limit=limit)
+def get_products(q: str | None = None, db: Session = Depends(get_db)):
+    return get_all_products(db, q)
 
 
 @router.get("/{product_id}")
@@ -35,6 +33,16 @@ def get_product_pricing_details(product_id: int):
 @router.get("/{product_id}/stock-details")
 def get_product_stock_details(product_id: int):
     return get_product_stock_details_service(product_id)
+
+
+@router.get("/{product_id}/kpis")
+def get_product_kpis(product_id: int, days: int = 30, db: Session = Depends(get_db)):
+    try:
+        return get_product_kpis_service(product_id, db, days)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Erreur calcul KPI: {str(e)}")
 
 
 @router.post("/bulk")
