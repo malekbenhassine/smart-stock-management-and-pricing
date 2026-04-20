@@ -6,8 +6,8 @@ from sqlalchemy.orm import relationship
 from app.core.database import Base
 
 
-class ActivationToken(Base):
-    __tablename__ = "activation_tokens"
+class PasswordResetToken(Base):
+    __tablename__ = "password_reset_tokens"
 
     id = Column(Integer, primary_key=True, index=True)
     user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)

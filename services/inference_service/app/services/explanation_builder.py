@@ -126,26 +126,87 @@ def build_price_explanation(
     recommended_price: float,
     predicted_demand: float,
     price_direction: str,
+    current_demand: float | None = None,
+    season: str | None = None,
+    is_peak_season: bool | None = None,
 ) -> str:
     current_txt = f"{current_price:.2f}"
     recommended_txt = f"{recommended_price:.2f}"
     demand_txt = f"{predicted_demand:.1f}"
 
+    price_diff = recommended_price - current_price
+    price_diff_abs = abs(price_diff)
+    price_diff_txt = f"{price_diff_abs:.2f}"
+
+    if current_price > 0:
+        price_diff_pct = abs((price_diff / current_price) * 100)
+    else:
+        price_diff_pct = 0.0
+    price_diff_pct_txt = f"{price_diff_pct:.1f}"
+
+    demand_comment = ""
+    if current_demand is not None:
+        if current_demand < 10:
+            demand_comment = (
+                " La demande actuelle est relativement faible, ce qui justifie un ajustement tarifaire "
+                "pour mieux soutenir la performance commerciale du produit."
+            )
+        elif current_demand < 25:
+            demand_comment = (
+                " La demande actuelle reste modérée, ce qui invite à adopter un positionnement prix prudent "
+                "et cohérent avec le rythme de vente."
+            )
+        else:
+            demand_comment = (
+                " Le produit affiche déjà une demande intéressante, ce qui permet d’envisager une optimisation "
+                "du prix avec davantage de confiance."
+            )
+
+    season_comment = ""
+    if season:
+        if is_peak_season is True:
+            season_comment = (
+                f" De plus, nous sommes en saison favorable pour ce produit ({season}), "
+                "ce qui renforce l’intérêt de cette décision commerciale."
+            )
+        elif is_peak_season is False:
+            season_comment = (
+                f" En revanche, la saison actuelle ({season}) n’est pas la plus porteuse pour ce produit, "
+                "ce qui incite à rester prudent afin de ne pas freiner davantage la demande."
+            )
+        else:
+            season_comment = (
+                f" La saison actuelle identifiée pour l’analyse est {season}, "
+                "un élément à prendre en compte dans l’interprétation de cette recommandation."
+            )
+
     if price_direction == "UP":
         return (
-            f"Une hausse de prix est recommandée : le prix actuel ({current_txt}) peut être ajusté vers "
-            f"{recommended_txt}. La demande estimée reste acceptable ({demand_txt}), ce qui suggère qu’une "
-            f"amélioration de marge est possible sans dégradation brutale des ventes."
+            f"Une hausse de prix est recommandée : le prix peut passer de {current_txt} à {recommended_txt}, "
+            f"soit une augmentation de {price_diff_txt} (+{price_diff_pct_txt} %). "
+            f"La demande estimée reste à {demand_txt} unités, ce qui montre que le produit peut supporter "
+            f"cette revalorisation sans perte brutale de performance."
+            f"{demand_comment}"
+            f"{season_comment} "
+            f"Cette action représente une opportunité intéressante pour améliorer la rentabilité du produit."
         )
 
     if price_direction == "DOWN":
         return (
-            f"Une baisse de prix est recommandée : le prix actuel ({current_txt}) peut être ajusté vers "
-            f"{recommended_txt}. Cette décision vise à soutenir la demande estimée ({demand_txt}) et à "
-            f"favoriser un meilleur écoulement du produit."
+            f"Une baisse de prix est recommandée : le prix peut passer de {current_txt} à {recommended_txt}, "
+            f"soit une diminution de {price_diff_txt} (-{price_diff_pct_txt} %). "
+            f"La demande estimée est de {demand_txt} unités, ce qui suggère qu’un prix plus attractif "
+            f"peut favoriser un meilleur écoulement."
+            f"{demand_comment}"
+            f"{season_comment} "
+            f"Cette décision vise à stimuler les ventes et à améliorer la fluidité du stock."
         )
 
     return (
-        f"Le prix recommandé reste proche du prix actuel ({current_txt}). "
-        f"La demande estimée ({demand_txt}) ne justifie pas de changement important à ce stade."
+        f"Le prix recommandé reste proche du prix actuel : {current_txt} contre {recommended_txt}. "
+        f"L’écart reste limité à {price_diff_txt} ({price_diff_pct_txt} %), avec une demande estimée à "
+        f"{demand_txt} unités."
+        f"{demand_comment}"
+        f"{season_comment} "
+        f"Dans ce contexte, aucun changement tarifaire majeur n’est nécessaire."
     )

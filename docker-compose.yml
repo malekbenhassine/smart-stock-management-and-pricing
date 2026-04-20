@@ -46,6 +46,21 @@ services:
     networks:
       - smart_network
 
+  postgres_auth:
+    image: postgres:15
+    container_name: postgres_auth
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: auth_db
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5436:5432"
+    volumes:
+      - postgres_auth_data:/var/lib/postgresql/data
+    networks:
+      - smart_network
+
   csv_import_service:
     build:
       context: ./services/csv_import_service
@@ -108,10 +123,25 @@ services:
     networks:
       - smart_network
 
+  auth_service:
+    build:
+      context: ./services/auth_service
+    container_name: auth_service
+    restart: unless-stopped
+    depends_on:
+      - postgres_auth
+    env_file:
+      - ./services/auth_service/.env
+    ports:
+      - "8007:8007"
+    networks:
+      - smart_network
+
 volumes:
   postgres_csv_import_data:
   postgres_stock_data:
   postgres_inference_data:
+  postgres_auth_data:
 
 networks:
   smart_network:

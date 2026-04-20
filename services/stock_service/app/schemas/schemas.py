@@ -135,4 +135,107 @@ class SalesHistoryIn(BaseModel):
     units_ordered: Optional[float] = None
     weather_condition: Optional[str] = None
     holiday_promotion: Optional[int] = None
-    seasonality: Optional[str] = None    
+    seasonality: Optional[str] = None  
+class ProductCreate(BaseModel):
+    sku: str
+    nom: str
+    categorie: Optional[str] = None
+    marque: Optional[str] = None
+    description: Optional[str] = None
+    prixCout: Optional[float] = None
+    prixVente: Optional[float] = None
+    margeReservee: Optional[float] = None
+    stockDisponible: Optional[int] = None
+    stockReserve: Optional[int] = None
+    stockMinimum: Optional[int] = None
+    seuilMax: Optional[int] = None
+    seuilMin: Optional[int] = None
+    statut: Optional[str] = None
+    dateDebutObservation: Optional[date] = None
+    dateFinObservation: Optional[date] = None
+
+
+class ProductUpdate(BaseModel):
+    sku: Optional[str] = None
+    nom: Optional[str] = None
+    categorie: Optional[str] = None
+    marque: Optional[str] = None
+    description: Optional[str] = None
+    prixCout: Optional[float] = None
+    prixVente: Optional[float] = None
+    margeReservee: Optional[float] = None
+    stockDisponible: Optional[int] = None
+    stockReserve: Optional[int] = None
+    stockMinimum: Optional[int] = None
+    seuilMax: Optional[int] = None
+    seuilMin: Optional[int] = None
+    statut: Optional[str] = None
+    dateDebutObservation: Optional[date] = None
+    dateFinObservation: Optional[date] = None
+
+
+class ProductPriceUpdate(BaseModel):
+    newPrixVente: float
+    justification: Optional[str] = None
+
+
+class SupplierCreate(BaseModel):
+    nom: str
+    tel: Optional[str] = None
+    adresse: Optional[str] = None
+    leadTimejours: Optional[int] = None
+    scorefiabilite: Optional[float] = None
+
+    @field_validator("tel", mode="before")
+    @classmethod
+    def coerce_tel_to_str_create(cls, v):
+        if v is None:
+            return None
+        return str(v).strip()
+
+
+class SupplierUpdate(BaseModel):
+    nom: Optional[str] = None
+    tel: Optional[str] = None
+    adresse: Optional[str] = None
+    leadTimejours: Optional[int] = None
+    scorefiabilite: Optional[float] = None
+
+    @field_validator("tel", mode="before")
+    @classmethod
+    def coerce_tel_to_str_update(cls, v):
+        if v is None:
+            return None
+        return str(v).strip()
+
+
+class SupplierOrderCreate(BaseModel):
+    fournisseur_id: int
+    idCommande: str
+    dateCommande: Optional[date] = None
+    dateReceptionPrevue: Optional[date] = None
+    dateReceptionReelle: Optional[date] = None
+    statut: Optional[str] = None
+
+
+class SupplierOrderUpdate(BaseModel):
+    fournisseur_id: Optional[int] = None
+    idCommande: Optional[str] = None
+    dateCommande: Optional[date] = None
+    dateReceptionPrevue: Optional[date] = None
+    dateReceptionReelle: Optional[date] = None
+    statut: Optional[str] = None
+
+
+class SupplierOrderLineCreate(BaseModel):
+    produit_id: int
+    quantiteCommandee: Optional[int] = None
+    quantiteRecue: Optional[int] = None
+    prixAchatUnitaire: Optional[float] = None
+
+
+class SupplierOrderLineUpdate(BaseModel):
+    produit_id: Optional[int] = None
+    quantiteCommandee: Optional[int] = None
+    quantiteRecue: Optional[int] = None
+    prixAchatUnitaire: Optional[float] = None      

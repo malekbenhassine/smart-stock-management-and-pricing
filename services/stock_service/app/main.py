@@ -6,6 +6,9 @@ from .api.routes.health import router as health_router
 from .api.routes.products import router as products_router
 from .api.routes.bulk_imports import router as bulk_router
 from .api.routes.sales_history import router as sales_history_router
+from .api.routes.suppliers import router as suppliers_router
+from .api.routes.supplier_orders import router as supplier_orders_router
+
 app = FastAPI(title="stock-service")
 
 app.add_middleware(
@@ -29,3 +32,5 @@ app.include_router(health_router)
 app.include_router(products_router)
 app.include_router(bulk_router)
 app.include_router(sales_history_router)
+app.include_router(suppliers_router)
+app.include_router(supplier_orders_router)

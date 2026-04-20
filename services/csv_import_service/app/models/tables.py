@@ -1,6 +1,7 @@
 from sqlalchemy import Column, Integer, String, DateTime, Text
 from sqlalchemy.orm import declarative_base
 from datetime import datetime
+from zoneinfo import ZoneInfo
 
 Base = declarative_base()
 
@@ -14,4 +15,4 @@ class ImportLog(Base):
     status = Column(String(50), nullable=False)
     rows_imported = Column(Integer, default=0)
     error_detail = Column(Text)
-    imported_at = Column(DateTime, default=datetime.utcnow)
+    imported_at = Column(DateTime, default=lambda: datetime.now(ZoneInfo("Africa/Tunis")))

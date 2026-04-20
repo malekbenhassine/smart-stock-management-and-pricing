@@ -3,8 +3,6 @@ from pydantic import BaseModel, Field
 from typing import Optional
 import datetime
 
-# ── Requête commune ──────────────────────────────────────────────────────────
-# ── Requête commune ──────────────────────────────────────────────────────────
 class BaseRequest(BaseModel):
     store_id: str = Field(..., example="S001")
     product_id: str = Field(..., example="P0001")
@@ -25,7 +23,9 @@ class BaseRequest(BaseModel):
     cost_price: Optional[float] = Field(None, example=25.0)
     min_price: Optional[float] = Field(None, example=30.0)
     brand: Optional[str] = Field(None, example="HP")
-# ── Réponses : Demand ────────────────────────────────────────────────────────
+    min_margin: Optional[float] = Field(0.0, example=0.2)
+    peak_season: Optional[str] = Field(None, example="Summer")
+    seasonality_factor: Optional[float] = Field(1.0, example=1.1)
 # ── Réponses : Demand ────────────────────────────────────────────────────────
 class DemandResponse(BaseModel):
     store_id:         str
@@ -36,7 +36,6 @@ class DemandResponse(BaseModel):
     confidence_high:  float   = Field(..., description="Borne haute (+15%)")
     history_days_used: int    = Field(..., description="Jours d'historique disponibles")
 
-# ── Réponses : Pricing ───────────────────────────────────────────────────────
 # ── Réponses : Pricing ───────────────────────────────────────────────────────
 class PricingResponse(BaseModel):
     store_id:           str
@@ -50,7 +49,6 @@ class PricingResponse(BaseModel):
     reasoning:          str
 
 # ── Réponses : Restock ───────────────────────────────────────────────────────
-# ── Réponses : Restock ───────────────────────────────────────────────────────
 class RestockResponse(BaseModel):
     store_id:          str
     product_id:        str
@@ -63,7 +61,6 @@ class RestockResponse(BaseModel):
     urgency:           str   = Field(..., description="low / medium / high / critical")
     reasoning:         str
 
-# ── Schéma pour insérer des ventes historiques ───────────────────────────────
 # ── Schéma pour insérer des ventes historiques ───────────────────────────────
 class SalesRecord(BaseModel):
     store_id:           str
