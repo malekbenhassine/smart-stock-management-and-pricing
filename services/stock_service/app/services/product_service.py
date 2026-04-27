@@ -1,9 +1,19 @@
+"""
+Service produit.
+Lors de la création d'un produit :
+  1. Sauvegarde en base
+  2. Matching rétroactif contre les produits concurrents déjà en base
+  3. Lancement du scraping chez tous les concurrents actifs (background)
+"""
+import logging
 from statistics import median
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
 from sqlalchemy import or_
 
-from ..models.tables import Product, ProductCompetitor
+from ..models.tables import Product, ProductCompetitor, Competitor
+
+logger = logging.getLogger(__name__)
 
 
 def serialize_product(p: Product):
@@ -30,7 +40,6 @@ def serialize_product(p: Product):
 
 def get_all_products(db: Session, q: str | None = None):
     query = db.query(Product)
-
     if q:
         search = f"%{q}%"
         query = query.filter(
@@ -41,7 +50,6 @@ def get_all_products(db: Session, q: str | None = None):
                 Product.categorie.ilike(search),
             )
         )
-
     rows = query.order_by(Product.id.desc()).all()
     return [serialize_product(p) for p in rows]
 
@@ -57,16 +65,11 @@ def get_product_pricing_details_service(product_id: int, db: Session):
     p = db.query(Product).filter(Product.id == product_id).first()
     if not p:
         raise HTTPException(status_code=404, detail="Produit introuvable")
-
     return {
-        "id": p.id,
-        "sku": p.sku,
-        "nom": p.nom,
-        "prixVente": p.prix_vente,
-        "prixCout": p.prix_cout,
+        "id": p.id, "sku": p.sku, "nom": p.nom,
+        "prixVente": p.prix_vente, "prixCout": p.prix_cout,
         "margeReservee": p.marge_reservee,
-        "categorie": p.categorie,
-        "marque": p.marque,
+        "categorie": p.categorie, "marque": p.marque,
     }
 
 
@@ -74,16 +77,11 @@ def get_product_stock_details_service(product_id: int, db: Session):
     p = db.query(Product).filter(Product.id == product_id).first()
     if not p:
         raise HTTPException(status_code=404, detail="Produit introuvable")
-
     return {
-        "id": p.id,
-        "sku": p.sku,
-        "nom": p.nom,
-        "stockDisponible": p.stock_disponible,
-        "stockReserve": p.stock_reserve,
+        "id": p.id, "sku": p.sku, "nom": p.nom,
+        "stockDisponible": p.stock_disponible, "stockReserve": p.stock_reserve,
         "stockMinimum": p.stock_minimum,
-        "seuilMin": p.seuil_min,
-        "seuilMax": p.seuil_max,
+        "seuilMin": p.seuil_min, "seuilMax": p.seuil_max,
         "statut": p.statut,
     }
 
@@ -111,10 +109,18 @@ def create_product_service(payload, db: Session):
         date_debut_observation=payload.dateDebutObservation,
         date_fin_observation=payload.dateFinObservation,
     )
-
     db.add(obj)
     db.commit()
     db.refresh(obj)
+
+    # Étape 2 : matching rétroactif contre les produits concurrents déjà en base
+    try:
+        from ..services.competitor_product_service import match_new_internal_product
+        matched = match_new_internal_product(obj, db)
+        logger.info(f"Produit {obj.id} '{obj.nom}' : {len(matched)} match(s) trouvé(s) en base")
+    except Exception as e:
+        logger.warning(f"Matching rétroactif échoué pour produit {obj.id}: {e}")
+
     return serialize_product(obj)
 
 
@@ -131,26 +137,20 @@ def update_product_service(product_id: int, payload, db: Session):
             raise HTTPException(status_code=400, detail="Un autre produit utilise déjà ce SKU")
 
     mapping = {
-        "sku": "sku",
-        "nom": "nom",
-        "categorie": "categorie",
-        "marque": "marque",
-        "description": "description",
-        "prixCout": "prix_cout",
-        "prixVente": "prix_vente",
+        "sku": "sku", "nom": "nom", "categorie": "categorie",
+        "marque": "marque", "description": "description",
+        "prixCout": "prix_cout", "prixVente": "prix_vente",
         "margeReservee": "marge_reservee",
-        "stockDisponible": "stock_disponible",
-        "stockReserve": "stock_reserve",
-        "stockMinimum": "stock_minimum",
-        "seuilMax": "seuil_max",
-        "seuilMin": "seuil_min",
+        "stockDisponible": "stock_disponible", "stockReserve": "stock_reserve",
+        "stockMinimum": "stock_minimum", "seuilMax": "seuil_max", "seuilMin": "seuil_min",
         "statut": "statut",
         "dateDebutObservation": "date_debut_observation",
         "dateFinObservation": "date_fin_observation",
     }
 
     for key, value in data.items():
-        setattr(obj, mapping[key], value)
+        if key in mapping:
+            setattr(obj, mapping[key], value)
 
     db.commit()
     db.refresh(obj)
@@ -161,13 +161,13 @@ def delete_product_service(product_id: int, db: Session):
     obj = db.query(Product).filter(Product.id == product_id).first()
     if not obj:
         raise HTTPException(status_code=404, detail="Produit introuvable")
-
     db.delete(obj)
     db.commit()
     return {"message": "Produit supprimé avec succès"}
 
 
 def calculate_initial_price_recommendation_service(product_id: int, db: Session):
+    """Recommandation simple (legacy) — préférer /price-recommendation pour la version avancée."""
     product = db.query(Product).filter(Product.id == product_id).first()
     if not product:
         raise HTTPException(status_code=404, detail="Produit introuvable")
@@ -178,52 +178,39 @@ def calculate_initial_price_recommendation_service(product_id: int, db: Session)
             ProductCompetitor.produit_id == product_id,
             ProductCompetitor.fiable.is_(True),
             ProductCompetitor.prix_concurrent.isnot(None),
+            ProductCompetitor.match_status.in_(["auto", "manual"]),
         )
         .all()
     )
 
-    prices = []
-    for c in competitors:
-        if c.prix_concurrent is not None and c.prix_concurrent > 0:
-            prices.append(c.prix_concurrent)
-
+    prices = [c.prix_concurrent for c in competitors if c.prix_concurrent and c.prix_concurrent > 0]
     competitor_count = len(prices)
 
     if competitor_count >= 3:
         recommended = round(median(prices), 2)
         return {
-            "productId": product.id,
-            "sku": product.sku,
-            "nom": product.nom,
+            "productId": product.id, "sku": product.sku, "nom": product.nom,
             "currentPrixVente": product.prix_vente,
             "recommendedPrixVente": recommended,
-            "source": "CONCURRENT",
-            "competitorCount": competitor_count,
+            "source": "CONCURRENT", "competitorCount": competitor_count,
             "message": "Recommandation calculée uniquement, non appliquée.",
         }
 
-    if product.prix_cout is not None and product.prix_cout > 0:
-        margin_rate = 0.20
-        recommended = round(product.prix_cout * (1 + margin_rate), 2)
+    if product.prix_cout and product.prix_cout > 0:
+        recommended = round(product.prix_cout * 1.20, 2)
         return {
-            "productId": product.id,
-            "sku": product.sku,
-            "nom": product.nom,
+            "productId": product.id, "sku": product.sku, "nom": product.nom,
             "currentPrixVente": product.prix_vente,
             "recommendedPrixVente": recommended,
-            "source": "COST_PLUS_MARGIN",
-            "competitorCount": competitor_count,
+            "source": "COST_PLUS_MARGIN", "competitorCount": competitor_count,
             "message": "Recommandation calculée uniquement, non appliquée.",
         }
 
     return {
-        "productId": product.id,
-        "sku": product.sku,
-        "nom": product.nom,
+        "productId": product.id, "sku": product.sku, "nom": product.nom,
         "currentPrixVente": product.prix_vente,
         "recommendedPrixVente": None,
-        "source": "INSUFFICIENT_DATA",
-        "competitorCount": competitor_count,
+        "source": "INSUFFICIENT_DATA", "competitorCount": competitor_count,
         "message": "Impossible de calculer une recommandation fiable.",
     }
 
@@ -232,12 +219,10 @@ def update_product_price_service(product_id: int, new_price: float, justificatio
     product = db.query(Product).filter(Product.id == product_id).first()
     if not product:
         raise HTTPException(status_code=404, detail="Produit introuvable")
-
     if new_price is None or new_price < 0:
-        raise HTTPException(status_code=400, detail="Le nouveau prix doit être supérieur ou égal à 0")
+        raise HTTPException(status_code=400, detail="Le nouveau prix doit être >= 0")
 
     old_price = product.prix_vente
-
     if old_price is None:
         product.prix_vente = new_price
         db.commit()
@@ -245,35 +230,27 @@ def update_product_price_service(product_id: int, new_price: float, justificatio
         return {
             "message": "Prix mis à jour avec succès",
             "product": serialize_product(product),
-            "oldPrixVente": old_price,
-            "newPrixVente": new_price,
+            "oldPrixVente": old_price, "newPrixVente": new_price,
             "variationPercent": None,
-            "justificationRequired": False,
-            "justificationProvided": bool(justification),
+            "justificationRequired": False, "justificationProvided": bool(justification),
         }
 
-    if old_price == 0:
-        variation_percent = 100.0 if new_price != 0 else 0.0
-    else:
-        variation_percent = abs((new_price - old_price) / old_price) * 100
-
+    variation_percent = abs((new_price - old_price) / old_price * 100) if old_price != 0 else 100.0
     justification_required = variation_percent >= 50
 
-    if justification_required and (justification is None or not justification.strip()):
+    if justification_required and not (justification and justification.strip()):
         raise HTTPException(
             status_code=400,
-            detail="Une justification est obligatoire lorsque la variation du prix est supérieure ou égale à 50%",
+            detail="Une justification est obligatoire pour une variation >= 50%",
         )
 
     product.prix_vente = new_price
     db.commit()
     db.refresh(product)
-
     return {
         "message": "Prix mis à jour avec succès",
         "product": serialize_product(product),
-        "oldPrixVente": old_price,
-        "newPrixVente": new_price,
+        "oldPrixVente": old_price, "newPrixVente": new_price,
         "variationPercent": round(variation_percent, 2),
         "justificationRequired": justification_required,
         "justificationProvided": bool(justification and justification.strip()),

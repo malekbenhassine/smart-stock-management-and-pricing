@@ -1,6 +1,19 @@
-from sqlalchemy import Column, Integer, Float, String, Boolean, DateTime, Date, Text
-from sqlalchemy.orm import declarative_base
 from datetime import datetime
+
+from sqlalchemy import (
+    Column,
+    Integer,
+    Float,
+    String,
+    Boolean,
+    DateTime,
+    Date,
+    Text,
+    JSON,
+    ForeignKey,
+    UniqueConstraint,
+)
+from sqlalchemy.orm import declarative_base, relationship
 
 Base = declarative_base()
 
@@ -11,23 +24,24 @@ class Product(Base):
     id = Column(Integer, primary_key=True)
     sku = Column(String(100), unique=True, index=True, nullable=False)
     nom = Column(String(255), nullable=False)
-    categorie = Column(String(100))
-    marque = Column(String(100))
-    description = Column(Text)
+    categorie = Column(String(100), nullable=True)
+    marque = Column(String(100), nullable=True)
+    description = Column(Text, nullable=True)
 
-    prix_cout = Column("prixCout", Float)
-    prix_vente = Column("prixVente", Float)
-    marge_reservee = Column("margeReservee", Float)
+    prix_cout = Column("prixCout", Float, nullable=True)
+    prix_vente = Column("prixVente", Float, nullable=True)
+    marge_reservee = Column("margeReservee", Float, nullable=True)
 
-    stock_disponible = Column("stockDisponible", Integer)
-    stock_reserve = Column("stockReserve", Integer)
-    stock_minimum = Column("stockMinimum", Integer)
-    seuil_max = Column("seuilMax", Integer)
-    seuil_min = Column("seuilMin", Integer)
-
-    statut = Column(String(50))
-    date_debut_observation = Column("dateDebutObservation", Date)
-    date_fin_observation = Column("dateFinObservation", Date)
+    stock_disponible = Column("stockDisponible", Integer, nullable=True)
+    stock_reserve = Column("stockReserve", Integer, nullable=True)
+    stock_minimum = Column("stockMinimum", Integer, nullable=True)
+    seuil_max = Column("seuilMax", Integer, nullable=True)
+    seuil_min = Column("seuilMin", Integer, nullable=True)
+    analyse_concurrentielle_statut = Column("analyseConcurrentielleStatut",String(50),default="NOT_STARTED",nullable=True,)
+    analyse_concurrentielle_date = Column("analyseConcurrentielleDate",DateTime,nullable=True,)
+    statut = Column(String(50), nullable=True)
+    date_debut_observation = Column("dateDebutObservation", Date, nullable=True)
+    date_fin_observation = Column("dateFinObservation", Date, nullable=True)
 
 
 class Supplier(Base):
@@ -35,66 +49,66 @@ class Supplier(Base):
 
     id = Column(Integer, primary_key=True)
     nom = Column(String(255), nullable=False)
-    tel = Column(String(50))
-    adresse = Column(String(255))
-    lead_time_jours = Column("leadTimejours", Integer)
-    score_fiabilite = Column("scorefiabilite", Float)
+    tel = Column(String(50), nullable=True)
+    adresse = Column(String(255), nullable=True)
+    lead_time_jours = Column("leadTimejours", Integer, nullable=True)
+    score_fiabilite = Column("scorefiabilite", Float, nullable=True)
 
 
 class SupplierOrder(Base):
     __tablename__ = "commandes_fournisseurs"
 
     id = Column(Integer, primary_key=True)
-    fournisseur_id = Column(Integer, nullable=False)
+    fournisseur_id = Column(Integer, nullable=False, index=True)
     id_commande = Column("idCommande", String(100), unique=True, index=True, nullable=False)
-    date_commande = Column("dateCommande", Date)
-    date_reception_prevue = Column("dateReceptionPrevue", Date)
-    date_reception_reelle = Column("dateReceptionReelle", Date)
-    statut = Column(String(50))
+    date_commande = Column("dateCommande", Date, nullable=True)
+    date_reception_prevue = Column("dateReceptionPrevue", Date, nullable=True)
+    date_reception_reelle = Column("dateReceptionReelle", Date, nullable=True)
+    statut = Column(String(50), nullable=True)
 
 
 class SupplierOrderLine(Base):
     __tablename__ = "lignes_commandes"
 
     id = Column(Integer, primary_key=True)
-    commande_id = Column(Integer, nullable=False)
-    produit_id = Column(Integer, nullable=False)
-    quantite_commandee = Column("quantiteCommandee", Integer)
-    quantite_recue = Column("quantiteRecue", Integer)
-    prix_achat_unitaire = Column("prixAchatUnitaire", Float)
+    commande_id = Column(Integer, nullable=False, index=True)
+    produit_id = Column(Integer, nullable=False, index=True)
+    quantite_commandee = Column("quantiteCommandee", Integer, nullable=True)
+    quantite_recue = Column("quantiteRecue", Integer, nullable=True)
+    prix_achat_unitaire = Column("prixAchatUnitaire", Float, nullable=True)
 
 
 class Sale(Base):
     __tablename__ = "ventes"
 
     id = Column(Integer, primary_key=True)
-    date_vente = Column("dateVente", DateTime)
-    source = Column(String(50))
-    statut = Column(String(50))
+    date_vente = Column("dateVente", DateTime, nullable=True)
+    source = Column(String(50), nullable=True)
+    statut = Column(String(50), nullable=True)
 
 
 class SaleLine(Base):
     __tablename__ = "lignes_ventes"
 
     id = Column(Integer, primary_key=True)
-    vente_id = Column(Integer, nullable=False)
-    produit_id = Column(Integer, nullable=False)
+    vente_id = Column(Integer, nullable=False, index=True)
+    produit_id = Column(Integer, nullable=False, index=True)
     quantite = Column(Integer, nullable=False)
-    prix_vente_unitaire = Column("prixVenteUnitaire", Float)
+    prix_vente_unitaire = Column("prixVenteUnitaire", Float, nullable=True)
 
 
 class Promotion(Base):
     __tablename__ = "promotions"
 
     id = Column(Integer, primary_key=True)
-    nom = Column(String(255))
-    type = Column(String(50))
-    valeur = Column(Float)
-    date_debut = Column("dateDebut", Date)
-    date_fin = Column("dateFin", Date)
-    stock_minimum_requis = Column("stockMinimumRequis", Integer)
-    actif = Column(Boolean, default=False)
-    prix_promo = Column("prixPromo", Float)
+    nom = Column(String(255), nullable=True)
+    type = Column(String(50), nullable=True)
+    valeur = Column(Float, nullable=True)
+    date_debut = Column("dateDebut", Date, nullable=True)
+    date_fin = Column("dateFin", Date, nullable=True)
+    stock_minimum_requis = Column("stockMinimumRequis", Integer, nullable=True)
+    actif = Column(Boolean, default=False, nullable=False)
+    prix_promo = Column("prixPromo", Float, nullable=True)
 
 
 class ProductPromotion(Base):
@@ -102,62 +116,139 @@ class ProductPromotion(Base):
 
     produit_id = Column(Integer, primary_key=True)
     promotion_id = Column(Integer, primary_key=True)
-    prix_promo = Column("prixPromo", Float)
-
-
-class Competitor(Base):
-    __tablename__ = "concurrents"
-
-    id = Column(Integer, primary_key=True)
-    nom = Column(String(255), nullable=False)
-    site_url = Column("siteUrl", String(255))
-    actif = Column(Boolean, default=True)
-    frequence_scraping_heures = Column("frequenceScrapingHeures", Integer)
-    dernier_scraping = Column("dernierScraping", DateTime)
-
-
-class ProductCompetitor(Base):
-    __tablename__ = "produits_concurrents"
-
-    id = Column(Integer, primary_key=True)
-    url_produit = Column("urlProduit", Text)
-    sku_concurrent = Column("skuConcurrent", String(100))
-    nom_produit = Column("nomProduit", String(255))
-    concurrent_id = Column(Integer, nullable=False)
-    produit_id = Column(Integer, nullable=False)
-    prix_concurrent = Column("prixConcurrent", Float)
-    is_promo = Column("isPromo", Boolean, default=False)
-    disponibilite = Column(String(50))
-    date_collecte = Column("dateCollecte", DateTime)
-    fiable = Column(Boolean, default=True)
+    prix_promo = Column("prixPromo", Float, nullable=True)
 
 
 class StockMovement(Base):
     __tablename__ = "mouvement_stock"
 
     id = Column(Integer, primary_key=True)
-    produit_id = Column(Integer, nullable=False)
+    produit_id = Column(Integer, nullable=False, index=True)
     type = Column(String(50), nullable=False)
     quantite = Column(Integer, nullable=False)
-    date_mouvement = Column("dateMouvement", DateTime, default=datetime.utcnow)
-    justification = Column(String(255))
+    date_mouvement = Column("dateMouvement", DateTime, default=datetime.utcnow, nullable=False)
+    justification = Column(String(255), nullable=True)
+
 
 class SalesHistory(Base):
-    __tablename__ = "sales_history"
+    __tablename__ = "historique_ventes"
 
     id = Column(Integer, primary_key=True)
     date = Column(Date, nullable=False, index=True)
     store_id = Column(String(100), nullable=False, index=True)
     product_id = Column(String(100), nullable=False, index=True)  # SKU
-    category = Column(String(100))
-    region = Column(String(100))
+    category = Column(String(100), nullable=True)
+    region = Column(String(100), nullable=True)
     sales = Column(Float, nullable=False)
     price = Column(Float, nullable=False)
-    stock = Column(Float)
-    discount = Column(Float)
-    competitor_pricing = Column(Float)
-    units_ordered = Column(Float)
-    weather_condition = Column(String(100))
-    holiday_promotion = Column(Integer)
-    seasonality = Column(String(50))
-    created_at = Column(DateTime, default=datetime.utcnow)    
+    stock = Column(Float, nullable=True)
+    discount = Column(Float, nullable=True)
+    competitor_pricing = Column(Float, nullable=True)
+    units_ordered = Column(Float, nullable=True)
+    weather_condition = Column(String(100), nullable=True)
+    holiday_promotion = Column(Integer, nullable=True)
+    seasonality = Column(String(50), nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+
+class Competitor(Base):
+    __tablename__ = "concurrents"
+    __table_args__ = (
+        UniqueConstraint("siteHostNormalized", name="uq_competitor_site_host"),
+    )
+
+    id = Column(Integer, primary_key=True)
+    nom = Column(String(255), nullable=False)
+    site_url = Column("siteUrl", String(500), nullable=False)
+    site_host_normalized = Column("siteHostNormalized", String(255), nullable=False, index=True)
+
+    actif = Column(Boolean, default=True, nullable=False)
+    frequence_scraping_heures = Column("frequenceScrapingHeures", Integer, default=24, nullable=False)
+    dernier_scraping = Column("dernierScraping", DateTime, nullable=True)
+
+    discovery_status = Column("discoveryStatus", String(50), default="pending", nullable=False)
+    last_discovery_at = Column("lastDiscoveryAt", DateTime, nullable=True)
+    last_discovery_error = Column("lastDiscoveryError", Text, nullable=True)
+
+    auto_keywords_json = Column("autoKeywordsJson", JSON, default=list, nullable=False)
+    selectors_override_json = Column("selectorsOverrideJson", JSON, default=dict, nullable=False)
+
+    created_at = Column("createdAt", DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = Column(
+        "updatedAt",
+        DateTime,
+        default=datetime.utcnow,
+        onupdate=datetime.utcnow,
+        nullable=False,
+    )
+
+    catalogs = relationship(
+        "CompetitorCatalog",
+        back_populates="competitor",
+        cascade="all, delete-orphan",
+    )
+
+
+class CompetitorCatalog(Base):
+    __tablename__ = "catalogues_concurrents"
+    __table_args__ = (
+        UniqueConstraint("competitor_id", "urlKey", name="uq_competitor_catalog_urlkey"),
+    )
+
+    id = Column(Integer, primary_key=True)
+    competitor_id = Column(
+        Integer,
+        ForeignKey("concurrents.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+
+    title = Column(String(255), nullable=False)
+    url = Column(String(700), nullable=False)
+    url_key = Column("urlKey", String(700), nullable=False)
+
+    parent_url = Column("parentUrl", String(700), nullable=True)
+    depth = Column(Integer, default=0, nullable=False)
+    score = Column(Float, default=0.0, nullable=False)
+    source = Column(String(50), default="auto_discovery", nullable=False)
+
+    is_selected = Column("isSelected", Boolean, default=True, nullable=False)
+    is_active = Column("isActive", Boolean, default=True, nullable=False)
+
+    discovered_at = Column("discoveredAt", DateTime, default=datetime.utcnow, nullable=False)
+
+    competitor = relationship("Competitor", back_populates="catalogs")
+
+
+class ProductCompetitor(Base):
+    __tablename__ = "produits_concurrents"
+    __table_args__ = (
+        UniqueConstraint(
+            "produit_id",
+            "concurrent_id",
+            "urlProduit",
+            name="uq_product_competitor_url",
+        ),
+    )
+
+    id = Column(Integer, primary_key=True, index=True)
+
+    url_produit = Column("urlProduit", Text, nullable=False)
+    sku_concurrent = Column("skuConcurrent", String(100), nullable=True)
+    nom_produit = Column("nomProduit", String(500), nullable=False)
+    description_concurrent = Column("descriptionConcurrent", Text, nullable=True)
+
+    concurrent_id = Column(Integer, nullable=False, index=True)
+    produit_id = Column(Integer, nullable=False, index=True)
+
+    prix_concurrent = Column("prixConcurrent", Float, nullable=True)
+    ancien_prix_concurrent = Column("ancienPrixConcurrent", Float, nullable=True)
+
+    is_promo = Column("isPromo", Boolean, default=False, nullable=False)
+    disponibilite = Column(String(100), nullable=True)
+    date_collecte = Column("dateCollecte", DateTime, nullable=True)
+    fiable = Column(Boolean, default=True, nullable=False)
+
+    score_matching = Column("scoreMatching", Float, nullable=True)
+    statut_matching = Column("statutMatching", String(50), default="IGNORED", nullable=True)
+    details_matching = Column("detailsMatching", JSON, nullable=True)

@@ -8,6 +8,9 @@ from .api.routes.bulk_imports import router as bulk_router
 from .api.routes.sales_history import router as sales_history_router
 from .api.routes.suppliers import router as suppliers_router
 from .api.routes.supplier_orders import router as supplier_orders_router
+from .api.routes.competitors import router as competitors_router
+from .api.routes.competitor_products import router as competitor_products_router
+#from .api.routes.matching import router as matching_router
 
 app = FastAPI(title="stock-service")
 
@@ -34,3 +37,6 @@ app.include_router(bulk_router)
 app.include_router(sales_history_router)
 app.include_router(suppliers_router)
 app.include_router(supplier_orders_router)
+app.include_router(competitors_router)
+app.include_router(competitor_products_router)
+#app.include_router(matching_router)

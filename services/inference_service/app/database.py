@@ -10,7 +10,7 @@ Base = declarative_base()
 
 
 class SalesHistory(Base):
-    __tablename__ = "sales_history"
+    __tablename__ = "historique_ventes"
     __table_args__ = (
         UniqueConstraint("date", "store_id", "product_id", name="uq_sales_history_date_store_product"),
     )

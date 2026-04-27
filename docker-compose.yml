@@ -137,6 +137,25 @@ services:
     networks:
       - smart_network
 
+  scraping_service:
+    build:
+      context: ./services/scraping_service
+    container_name: scraping_service
+    restart: unless-stopped
+    depends_on:
+      - stock_service
+    environment:
+      STOCK_SERVICE_URL: http://stock_service:2004
+      SCRAPING_INTERVAL_MINUTES: 60
+      HEADLESS: "true"
+      REQUEST_TIMEOUT: 20
+      MAX_PAGES_PER_CATALOG: 20
+      USER_AGENT: Mozilla/5.0
+    ports:
+      - "8060:8060"
+    networks:
+      - smart_network
+
 volumes:
   postgres_csv_import_data:
   postgres_stock_data:

@@ -1,3 +1,5 @@
+from urllib.parse import urlparse, urlunparse
+
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
@@ -128,6 +130,21 @@ def bulk_product_promotions(items: list[ProductPromotionIn], db: Session = Depen
     db.commit()
     return {"status": "success", "rows": len(items)}
 
+def normalize_site_url(raw_url: str | None) -> tuple[str | None, str | None]:
+    if not raw_url:
+        return None, None
+
+    parsed = urlparse(str(raw_url).strip())
+    scheme = parsed.scheme or "https"
+    host = (parsed.netloc or "").lower().strip()
+    if host.startswith("www."):
+        host = host[4:]
+
+    if not host:
+        return None, None
+
+    normalized = urlunparse((scheme, host, "/", "", "", ""))
+    return normalized, host
 
 @router.post("/competitors/bulk")
 def bulk_competitors(items: list[CompetitorIn], db: Session = Depends(get_db)):
@@ -136,14 +153,21 @@ def bulk_competitors(items: list[CompetitorIn], db: Session = Depends(get_db)):
         if not obj:
             obj = Competitor(id=item.id)
             db.add(obj)
+
+        normalized_site, host = normalize_site_url(item.siteurl)
+
         obj.nom = item.nom
-        obj.site_url = item.siteurl
-        obj.actif = item.actif
-        obj.frequence_scraping_heures = item.frequencescrapingheures
+        obj.site_url = normalized_site or f"https://competitor-{item.id}.local/"
+        obj.site_host_normalized = host or f"competitor-{item.id}.local"
+        obj.actif = bool(item.actif) if item.actif is not None else True
+        obj.frequence_scraping_heures = item.frequencescrapingheures or 24
         obj.dernier_scraping = item.dernierscraping
+        obj.discovery_status = "ready" if normalized_site else "pending"
+        obj.auto_keywords_json = obj.auto_keywords_json or []
+        obj.selectors_override_json = obj.selectors_override_json or {}
+
     db.commit()
     return {"status": "success", "rows": len(items)}
-
 
 @router.post("/product-competitors/bulk")
 def bulk_product_competitors(items: list[ProductCompetitorIn], db: Session = Depends(get_db)):
