@@ -105,3 +105,33 @@ class StockServiceClient:
         )
         response.raise_for_status()
         return response.json()
+    
+
+    def get_product_by_id(self, product_id: int) -> Optional[dict]:
+        response = self.session.get(
+            f"{self.base_url}/products/{product_id}",
+            timeout=(10, 30),
+        )
+
+        if response.status_code == 404:
+            return None
+
+        response.raise_for_status()
+        data = response.json()
+
+        # Certains endpoints retournent {"product": {...}}, d'autres directement le produit.
+        if isinstance(data, dict) and "product" in data:
+            return data["product"]
+
+        return data
+
+    def get_products_by_ids(self, product_ids: List[int]) -> List[dict]:
+        products = []
+
+        for product_id in product_ids:
+            product = self.get_product_by_id(product_id)
+
+            if product:
+                products.append(product)
+
+        return products

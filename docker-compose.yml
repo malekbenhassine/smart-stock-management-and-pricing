@@ -155,7 +155,15 @@ services:
       - "8060:8060"
     networks:
       - smart_network
-
+  adminer:
+    image: adminer:latest
+    container_name: adminer
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    networks:
+      - smart_network
+      
 volumes:
   postgres_csv_import_data:
   postgres_stock_data:

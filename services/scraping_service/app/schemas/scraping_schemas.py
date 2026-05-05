@@ -79,3 +79,24 @@ class ScrapeSummary(BaseModel):
     produits_enregistres: int
     catalog_details: List[CatalogScrapeDetail] = Field(default_factory=list)
     errors: List[str] = Field(default_factory=list)
+    
+# À ajouter dans scraping_service/app/schemas/scraping_schemas.py
+
+class ProductScheduleCreate(BaseModel):
+    product_ids: List[int]
+    run_at: str
+    fast: bool = True
+    debug: bool = False
+    title: Optional[str] = None
+
+
+class ProductRunNowRequest(BaseModel):
+    product_ids: List[int]
+    fast: bool = True
+    debug: bool = False
+
+
+class CatalogFrequencyConfig(BaseModel):
+    enabled: bool = True
+    interval_minutes: int = Field(default=360, ge=5)
+    competitor_id: Optional[int] = None

@@ -10,7 +10,9 @@ from .api.routes.suppliers import router as suppliers_router
 from .api.routes.supplier_orders import router as supplier_orders_router
 from .api.routes.competitors import router as competitors_router
 from .api.routes.competitor_products import router as competitor_products_router
-#from .api.routes.matching import router as matching_router
+from .api.routes.stock_movements import router as stock_movements_router
+from .api.routes.import_workflows import router as import_workflows_router
+from .api.routes.dashboard import router as dashboard_router
 
 app = FastAPI(title="stock-service")
 
@@ -39,4 +41,6 @@ app.include_router(suppliers_router)
 app.include_router(supplier_orders_router)
 app.include_router(competitors_router)
 app.include_router(competitor_products_router)
-#app.include_router(matching_router)
+app.include_router(stock_movements_router)
+app.include_router(import_workflows_router)
+app.include_router(dashboard_router)

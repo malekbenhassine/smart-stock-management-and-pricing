@@ -15,6 +15,7 @@ BRANDS = [
     "samsung", "huawei", "toshiba", "epson", "canon", "brother",
     "logitech", "razer", "kingston", "sandisk", "western digital",
     "gigabyte", "aorus", "xigmatek", "cooler master", "advance",
+    "redragon", "mibro", "xiaomi", "amazfit", "haylou", "kieslect", "hoco", "joyroom",
 ]
 
 
@@ -33,6 +34,9 @@ BRAND_ALIASES = {
     "tuf": "asus",
     "victus": "hp",
     "maxbook": "bmax",
+    "redmi": "xiaomi",
+    "mi watch": "xiaomi",
+    "mibro": "mibro",
 }
 
 
@@ -41,9 +45,14 @@ STOP_WORDS = {
     "full", "hd", "ips", "windows", "garantie", "ecran", "écran",
     "memoire", "mémoire", "disque", "ssd", "hdd", "go", "gb",
     "to", "tb", "gris", "noir", "blanc", "gaming", "gamer",
-    "gen", "generation", "génération",
+    "gen", "generation", "génération", "produit",
+    "montre", "connectee", "connecte", "smartwatch", "smart", "watch",
 }
 
+
+# ============================================================
+# Normalisation
+# ============================================================
 
 def normalize_text(value: Optional[str]) -> str:
     if not value:
@@ -59,20 +68,60 @@ def normalize_text(value: Optional[str]) -> str:
         "gén": "gen",
         "è": "e",
         "intel core": "core",
-        "go": "gb",
-        "to": "tb",
+        # FIX: "go" et "to" comme unités de stockage remplacés avec word-boundary
+        # pour éviter de corrompre des mots (ex: "logo" → "lgb")
         "m.2": "m2",
         "wi-fi": "wifi",
+        "thugga ii": "thugga 2",
     }
 
     for old, new in replacements.items():
         value = value.replace(old, new)
+
+    # FIX: Remplacement go/to uniquement quand ce sont des unités (avec word boundaries)
+    value = re.sub(r"\b(\d+)\s*go\b", r"\1gb", value)
+    value = re.sub(r"\b(\d+)\s*to\b", r"\1tb", value)
 
     value = re.sub(r"[/\\|_–]", " ", value)
     value = re.sub(r"[^a-z0-9.+#\- ]+", " ", value)
     value = re.sub(r"\s+", " ", value).strip()
 
     return value
+
+
+def normalize_ref(value: Optional[str]) -> Optional[str]:
+    """
+    Normalise une référence/SKU pour comparer correctement :
+
+    XPAW021
+    Réf : XPAW021
+    xpaw-021
+    /montre-connectee-mibro-watch-c4-silver-xpaw021.html
+
+    deviennent comparables.
+    """
+    if not value:
+        return None
+
+    value = str(value).lower().strip()
+
+    value = unicodedata.normalize("NFKD", value)
+    value = "".join(c for c in value if not unicodedata.combining(c))
+
+    # Nettoyer les mots parasites fréquents
+    value = value.replace("référence", " ")
+    value = value.replace("reference", " ")
+    value = value.replace("réf", " ")
+    value = value.replace("ref", " ")
+    value = value.replace("sku", " ")
+    value = value.replace(":", " ")
+    value = value.replace("_", " ")
+    value = value.replace("-", " ")
+
+    # Garder uniquement lettres/chiffres
+    value = re.sub(r"[^a-z0-9]+", "", value)
+
+    return value or None
 
 
 def text_similarity(a: Optional[str], b: Optional[str]) -> float:
@@ -101,6 +150,10 @@ def text_similarity(a: Optional[str], b: Optional[str]) -> float:
     return round(score * 100, 2)
 
 
+# ============================================================
+# Extraction des caractéristiques
+# ============================================================
+
 def extract_brand(text: str) -> Optional[str]:
     normalized = normalize_text(text)
 
@@ -115,53 +168,78 @@ def extract_brand(text: str) -> Optional[str]:
     return None
 
 
-def normalize_reference_for_match(value: Optional[str]) -> Optional[str]:
-    """
-    Normalise deux références pour une comparaison exacte.
-    X1502VA-BQ903W et x1502va bq903w deviennent x1502vabq903w.
-    """
-    if not value:
-        return None
-
-    value = normalize_text(value)
-    value = re.sub(r"[^a-z0-9]+", "", value)
-
-    return value or None
-
-
 def extract_reference(text: str) -> Optional[str]:
     """
     Extrait une vraie référence produit.
-    Priorité aux références complètes avec tiret, puis références compactes.
-    On exclut les CPU/connectiques/mots techniques.
+
+    Correction importante :
+    - supporte XPAW021, XPAW021-S, BU-MIBRO-L3PRO-GREEN
+    - supporte les références compactes lettres+chiffres
+    - évite de prendre les CPU, tailles mémoire, ports, etc.
     """
-    raw = text or ""
-    normalized = normalize_text(raw)
+    normalized = normalize_text(text or "")
 
     patterns = [
-        r"\b[a-z0-9]{4,12}-[a-z0-9]{3,16}\b",  # x1502va-bq903w, 15-fa1006nk
-        r"\b[a-z]{1,5}\d{3,6}[a-z]{1,6}\b",    # x1502va, fa506nfr
-        r"\b\d[a-z0-9]{5,10}\b",               # 9u1b9ea
+        # Références type BU-MIBRO-L3PRO-GREEN, X1502VA-BQ903W
+        r"\b[a-z0-9]{2,15}(?:-[a-z0-9]{2,20})+\b",
+
+        # Références type XPAW021, ABC123, MIBROC4, G2412F
+        r"\b[a-z]{2,8}\d{2,8}[a-z0-9]{0,8}\b",
+
+        # Références type 82LX00ECFG, 9U1B9EA
+        r"\b\d[a-z0-9]{5,14}\b",
+
+        # Références type C4 uniquement si contexte marque/montre
+        r"\b[a-z]\d{1,3}\b",
     ]
 
-    excluded = [
-        r"^i[3579]-?\d", r"^core$", r"^intel$", r"^ryzen$",
-        r"^dc-?in$", r"^usb", r"^hdmi$", r"^rj45$",
-        r"haut", r"parleur", r"speaker", r"bluetooth", r"wifi",
-        r"windows", r"full", r"ecran", r"ips",
+    excluded_patterns = [
+        r"^i[3579]-?[a-z0-9]*$",
+        r"^n\d{2,4}$",
+        r"^ryzen.*$",
+        r"^celeron.*$",
+        r"^core.*$",
+        r"^intel.*$",
+        r"^amd.*$",
+        r"^usb.*$",
+        r"^hdmi$",
+        r"^vga$",
+        r"^rj45$",
+        r"^wifi$",
+        r"^bluetooth$",
+        r"^windows.*$",
+        r"^full.*$",
+        r"^fhd$",
+        r"^ips$",
+        r"^\d+(gb|tb|go|to)$",
+        r"^\d+\.?\d*$",
+        r"^\d+hz$",
+        r"^\d+w$",
     ]
 
-    candidates = []
+    candidates: list[str] = []
 
     for pattern in patterns:
         for match in re.findall(pattern, normalized):
-            ref = match.strip().lower()
+            ref = str(match).strip().replace(" ", "").lower()
 
-            if len(ref) < 4:
+            if len(ref) < 3:
                 continue
 
-            if any(re.search(p, ref) for p in excluded):
+            if any(re.match(excluded, ref) for excluded in excluded_patterns):
                 continue
+
+            # Sécurité : rejeter les CPU qui passent quand même
+            if re.match(r"^i[3579]-?\d+", ref):
+                continue
+
+            if re.match(r"^n\d{2,4}$", ref):
+                continue
+
+            # C4 seul est accepté seulement si contexte Mibro / smartwatch
+            if re.match(r"^[a-z]\d{1,3}$", ref):
+                if not any(word in normalized for word in ["mibro", "watch", "montre", "smartwatch"]):
+                    continue
 
             if ref not in candidates:
                 candidates.append(ref)
@@ -169,7 +247,8 @@ def extract_reference(text: str) -> Optional[str]:
     if not candidates:
         return None
 
-    candidates.sort(key=len, reverse=True)
+    # Priorité aux références longues et spécifiques, puis celles avec tiret.
+    candidates.sort(key=lambda x: (len(x), "-" in x), reverse=True)
 
     return candidates[0]
 
@@ -181,21 +260,42 @@ def extract_model(text: str) -> Optional[str]:
         r"\b(victus\s*\d{2}-[a-z0-9]{4,12})\b",
         r"\b(victus\s*\d{2})\b",
         r"\b(maxbook\s*x\d+\s*pro)\b",
-        r"\b(vivobook\s*[a-z0-9\- ]{1,20})\b",
-        r"\b(ideapad\s*[a-z0-9\- ]{1,20})\b",
-        r"\b(thinkpad\s*[a-z0-9\- ]{1,20})\b",
-        r"\b(pavilion\s*[a-z0-9\- ]{1,20})\b",
-        r"\b(inspiron\s*[a-z0-9\- ]{1,20})\b",
-        r"\b(latitude\s*[a-z0-9\- ]{1,20})\b",
-        r"\b(tuf\s*[a-z0-9\- ]{1,20})\b",
-        r"\b(rog\s*[a-z0-9\- ]{1,20})\b",
-        r"\b(nitro\s*[a-z0-9\- ]{1,20})\b",
+        r"\b(vivobook\s*[a-z0-9\- ]{1,18})\b",
+        r"\b(ideapad\s*[a-z0-9\- ]{1,18})\b",
+        r"\b(thinkpad\s*[a-z0-9\- ]{1,18})\b",
+        r"\b(pavilion\s*[a-z0-9\- ]{1,18})\b",
+        r"\b(inspiron\s*[a-z0-9\- ]{1,18})\b",
+        r"\b(latitude\s*[a-z0-9\- ]{1,18})\b",
+        r"\b(tuf\s*[a-z0-9\- ]{1,18})\b",
+        r"\b(rog\s*[a-z0-9\- ]{1,18})\b",
+        r"\b(nitro\s*[a-z0-9\- ]{1,18})\b",
+        r"\b(mibro\s*c\d+[a-z0-9\- ]{0,10})\b",
+        r"\b(mibro\s*lite\s*\d+\s*pro)\b",
+        r"\b(lite\s*\d+\s*pro)\b",
+        r"\b(c\d+)\b",
+        r"\b(thugga\s*2)\b",
+        r"\b(thugga\s*ii)\b",
     ]
 
     for pattern in patterns:
         match = re.search(pattern, normalized)
         if match:
-            return re.sub(r"\s+", " ", match.group(1)).strip()
+            model = re.sub(r"\s+", " ", match.group(1)).strip()
+
+            # Nettoyage pour éviter que le modèle capture trop de specs
+            stop_tokens = [
+                " i3", " i5", " i7", " i9", " ryzen",
+                " 4gb", " 8gb", " 16gb", " 24gb", " 32gb",
+                " 128gb", " 256gb", " 512gb", " 1tb",
+                " rtx", " gtx", " windows",
+            ]
+
+            for token in stop_tokens:
+                if token in model:
+                    model = model.split(token)[0].strip()
+                    break
+
+            return model or None
 
     return None
 
@@ -221,7 +321,7 @@ def extract_features(name: str, description: Optional[str] = None) -> dict:
     cpu_patterns = [
         r"\b(core\s*)?(i3|i5|i7|i9)\s*[- ]?\d{3,5}[a-z0-9]*\b",
         r"\b(i3|i5|i7|i9)\b",
-        r"\b(intel\s*)?(n95|n100|n200|n305)\b",
+        r"\b(intel\s*)?(n95|n100|n200|n305|n4500)\b",
         r"\b(ryzen\s*[3579])\s*[- ]?\d{3,5}[a-z0-9]*\b",
         r"\b(ryzen\s*[3579])\b",
         r"\b(celeron\s+[a-z0-9]+)\b",
@@ -260,7 +360,7 @@ def extract_features(name: str, description: Optional[str] = None) -> dict:
             features["stockage"] = values[-1]
 
     screen_match = re.search(
-        r"\b(13|14|15|15.6|16|17|17.3)\s*(\"|pouces|inch)?",
+        r"\b(13|14|15|15\.6|16|17|17\.3|19|21\.5|22|24|27|32)\s*(\"|\"|pouces|inch)?\b",
         normalized,
     )
     if screen_match:
@@ -289,134 +389,180 @@ def extract_features(name: str, description: Optional[str] = None) -> dict:
     elif "ubuntu" in normalized:
         features["os"] = "ubuntu"
 
-    capacity_match = re.search(r"\b(\d+)\s*(mah|w|watt|va)\b", normalized)
+    capacity_match = re.search(r"\b(\d+)\s*(mah|w|watt|va|hz)\b", normalized)
     if capacity_match:
         features["capacite"] = capacity_match.group(0).replace(" ", "")
 
-    for color in [
-        "noir", "blanc", "bleu", "rouge", "vert", "gris",
-        "argent", "silver", "or", "rose", "violet",
-    ]:
-        if re.search(rf"\b{color}\b", normalized):
-            features["couleur"] = color
+    color_aliases = {
+        "noir": "noir",
+        "black": "noir",
+        "blanc": "blanc",
+        "white": "blanc",
+        "gris": "gris",
+        "gris fonce": "gris",
+        "gray": "gris",
+        "grey": "gris",
+        "argent": "silver",
+        "silver": "silver",
+        "bleu": "bleu",
+        "blue": "bleu",
+        "rouge": "rouge",
+        "red": "rouge",
+        "vert": "vert",
+        "green": "vert",
+        "rose": "rose",
+        "pink": "rose",
+        "violet": "violet",
+    }
+
+    for raw_color, normalized_color in color_aliases.items():
+        if re.search(rf"\b{re.escape(raw_color)}\b", normalized):
+            features["couleur"] = normalized_color
             break
 
     return features
 
 
-def feature_similarity(internal_features: dict, competitor_features: dict) -> tuple[float, dict]:
+# ============================================================
+# Matching logique
+# ============================================================
+
+def _same(a: Optional[str], b: Optional[str]) -> bool:
+    return bool(a and b and normalize_text(str(a)) == normalize_text(str(b)))
+
+
+def _similar(a: Optional[str], b: Optional[str], threshold: float = 85) -> bool:
+    if not a or not b:
+        return False
+
+    return text_similarity(str(a), str(b)) >= threshold
+
+
+def _critical_mismatches(internal: dict, competitor: dict) -> list[str]:
+    """
+    Si deux valeurs critiques existent et sont différentes,
+    on ne considère pas que c'est le même produit.
+    """
+    critical_keys = [
+        "modele",
+        "processeur",
+        "ram",
+        "stockage",
+    ]
+
+    mismatches = []
+
+    for key in critical_keys:
+        a = internal.get(key)
+        b = competitor.get(key)
+
+        if not a or not b:
+            continue
+
+        if key == "modele":
+            if not (_same(a, b) or _similar(a, b, threshold=88)):
+                mismatches.append(key)
+        else:
+            if not _same(a, b):
+                mismatches.append(key)
+
+    return mismatches
+
+
+def _feature_points(internal: dict, competitor: dict) -> tuple[int, dict]:
+    """
+    Score basé sur les caractéristiques principales.
+    """
     weights = {
-        "marque": 20,
+        "marque": 15,
         "modele": 25,
-        "reference": 30,
-        "processeur": 15,
+        "processeur": 20,
         "ram": 15,
         "stockage": 15,
         "ecran": 5,
-        "gpu": 15,
-        "os": 3,
-        "capacite": 8,
-        "couleur": 2,
+        "couleur": 3,
+        "gpu": 10,
     }
 
-    possible = 0.0
-    obtained = 0.0
+    score = 0
     details = {}
 
     for key, weight in weights.items():
-        internal_value = internal_features.get(key)
-        competitor_value = competitor_features.get(key)
+        a = internal.get(key)
+        b = competitor.get(key)
 
-        if not internal_value and not competitor_value:
+        if not a and not b:
+            details[key] = {
+                "internal": a,
+                "competitor": b,
+                "match": None,
+                "reason": "ABSENT_BOTH",
+            }
             continue
 
-        possible += weight
-
-        matched = False
-        partial_score = 0.0
-
-        if internal_value and competitor_value:
-            if internal_value == competitor_value:
-                matched = True
-                partial_score = weight
+        if a and b:
+            if _same(a, b):
+                score += weight
+                details[key] = {
+                    "internal": a,
+                    "competitor": b,
+                    "match": True,
+                    "reason": "EXACT",
+                    "points": weight,
+                }
+            elif key in {"modele"} and _similar(a, b, threshold=88):
+                partial = int(weight * 0.8)
+                score += partial
+                details[key] = {
+                    "internal": a,
+                    "competitor": b,
+                    "match": True,
+                    "reason": "SIMILAR",
+                    "points": partial,
+                }
             else:
-                sim = text_similarity(str(internal_value), str(competitor_value))
+                details[key] = {
+                    "internal": a,
+                    "competitor": b,
+                    "match": False,
+                    "reason": "DIFFERENT",
+                    "points": 0,
+                }
+        else:
+            details[key] = {
+                "internal": a,
+                "competitor": b,
+                "match": None,
+                "reason": "MISSING_ONE_SIDE",
+                "points": 0,
+            }
 
-                if key in {"modele", "reference"} and sim >= 80:
-                    matched = True
-                    partial_score = weight * 0.8
-
-        obtained += partial_score
-
-        details[key] = {
-            "internal": internal_value,
-            "competitor": competitor_value,
-            "match": matched,
-        }
-
-    if possible == 0:
-        return 50.0, details
-
-    return round((obtained / possible) * 100, 2), details
+    return score, details
 
 
 def match_status(score: float, details: dict | None = None) -> str:
+    """
+    FIX: Logique corrigée pour tenir compte du score numérique en plus du match_type.
+    - MATCHED       : score >= SCORE_AUTO  ou match_type EXACT_REFERENCE/HIGH_CONFIDENCE
+    - MANUAL_REVIEW : score >= SCORE_MANUAL ou match_type MEDIUM_CONFIDENCE
+    - IGNORED       : score < SCORE_MANUAL
+    """
     details = details or {}
 
-    internal_features = details.get("internalFeatures", {})
-    competitor_features = details.get("competitorFeatures", {})
+    match_type = details.get("match_type") or details.get("matchType")
 
-    same_reference = (
-        internal_features.get("reference")
-        and competitor_features.get("reference")
-        and internal_features.get("reference") == competitor_features.get("reference")
-    )
-
-    same_model = (
-        internal_features.get("modele")
-        and competitor_features.get("modele")
-        and internal_features.get("modele") == competitor_features.get("modele")
-    )
-
-    same_brand = (
-        internal_features.get("marque")
-        and competitor_features.get("marque")
-        and internal_features.get("marque") == competitor_features.get("marque")
-    )
-
-    same_gpu = (
-        internal_features.get("gpu")
-        and competitor_features.get("gpu")
-        and internal_features.get("gpu") == competitor_features.get("gpu")
-    )
-
-    same_ram = (
-        internal_features.get("ram")
-        and competitor_features.get("ram")
-        and internal_features.get("ram") == competitor_features.get("ram")
-    )
-
-    same_cpu = (
-        internal_features.get("processeur")
-        and competitor_features.get("processeur")
-        and internal_features.get("processeur") == competitor_features.get("processeur")
-    )
-
-    # Règle métier forte :
-    # même marque + même référence/modèle + au moins une caractéristique forte identique
-    if score >= 65 and same_brand and (same_reference or same_model) and (same_gpu or same_ram or same_cpu):
+    if match_type in {"EXACT_REFERENCE", "EXACT_REFERENCE_DIRECT", "HIGH_CONFIDENCE"}:
         return "MATCHED"
 
-    # Règle métier moyenne :
-    # score très proche du seuil + référence/modèle identique
-    if score >= 70 and (same_reference or same_model) and (same_gpu or same_ram or same_cpu):
-        return "MATCHED"
-
-    if score >= SCORE_AUTO:
-        return "MATCHED"
-
-    if score >= SCORE_MANUAL:
+    if match_type == "MEDIUM_CONFIDENCE":
         return "MANUAL_REVIEW"
+
+    # FIX: Si match_type absent ou NO_MATCH, on se rabat sur le score numérique
+    if match_type in {None, "NO_MATCH"}:
+        if score >= SCORE_AUTO:
+            return "MATCHED"
+        if score >= SCORE_MANUAL:
+            return "MANUAL_REVIEW"
 
     return "IGNORED"
 
@@ -427,89 +573,400 @@ def compute_match_score(
     competitor_name: str,
     competitor_desc: Optional[str] = None,
 ) -> tuple[float, dict]:
+    """
+    Matching corrigé.
+
+    Objectif :
+    - Accepter le produit si la référence interne existe dans :
+      nom concurrent + description concurrente + sku concurrent + URL.
+    - Ne pas dépendre uniquement de skuConcurrent, car parfois le scraper extrait
+      un mauvais SKU comme "roidisseur".
+    - Garder une logique de score pour les cas sans référence exacte.
+    """
+
+    internal_name = internal_name or ""
+    internal_desc = internal_desc or ""
+    competitor_name = competitor_name or ""
+    competitor_desc = competitor_desc or ""
+
     name_score = text_similarity(internal_name, competitor_name)
     description_score = text_similarity(internal_desc, competitor_desc)
 
     internal_features = extract_features(internal_name, internal_desc)
     competitor_features = extract_features(competitor_name, competitor_desc)
 
-    internal_reference = internal_features.get("reference")
-    competitor_reference = competitor_features.get("reference")
+    internal_ref = normalize_ref(internal_features.get("reference"))
+    competitor_ref = normalize_ref(competitor_features.get("reference"))
 
-    internal_ref_norm = normalize_reference_for_match(internal_reference)
-    competitor_ref_norm = normalize_reference_for_match(competitor_reference)
+    internal_brand = internal_features.get("marque")
+    competitor_brand = competitor_features.get("marque")
+
+    reasons = []
+
+    feature_score, feature_details = _feature_points(
+        internal_features,
+        competitor_features,
+    )
 
     # ============================================================
-    # RÈGLE PRINCIPALE : même référence = même produit
+    # 0. Correction importante :
+    # chercher la référence interne dans tout le texte concurrent.
+    # Exemple :
+    # internal_ref = xpaw021
+    # competitor_name = Montre Connectée MIBRO Watch C4 Silver XPAW021
+    # competitor_desc = urlProduit + skuConcurrent + description
     # ============================================================
-    if internal_ref_norm and competitor_ref_norm:
-        if internal_ref_norm == competitor_ref_norm:
+
+    competitor_full_ref_text = normalize_ref(
+        " ".join([
+            competitor_name,
+            competitor_desc,
+        ])
+    )
+
+    if internal_ref and competitor_full_ref_text:
+        if internal_ref == competitor_full_ref_text or internal_ref in competitor_full_ref_text:
+            reasons.append(
+                "Référence interne trouvée dans le nom, la description, le SKU ou l'URL du produit concurrent."
+            )
+
+            if internal_brand and competitor_brand and internal_brand != competitor_brand:
+                reasons.append(
+                    f"Attention : référence trouvée mais marques différentes : {internal_brand} ≠ {competitor_brand}."
+                )
+
+                details = {
+                    "same_product": False,
+                    "sameProduct": False,
+                    "score": 55,
+                    "match_type": "NO_MATCH",
+                    "matchType": "NO_MATCH",
+                    "status": "IGNORED",
+                    "reasons": reasons,
+                    "nameScore": name_score,
+                    "descriptionScore": description_score,
+                    "featuresScore": feature_score,
+                    "internalFeatures": internal_features,
+                    "competitorFeatures": competitor_features,
+                    "featuresDetails": feature_details,
+                    "criticalMismatches": ["marque"],
+                }
+
+                return 55.0, details
+
             details = {
+                "same_product": True,
+                "sameProduct": True,
+                "score": 100,
+                "match_type": "EXACT_REFERENCE",
+                "matchType": "EXACT_REFERENCE",
+                "status": "MATCHED",
+                "reasons": reasons,
                 "nameScore": name_score,
                 "descriptionScore": description_score,
                 "featuresScore": 100,
                 "internalFeatures": internal_features,
                 "competitorFeatures": competitor_features,
-                "featuresDetails": {
-                    "reference": {
-                        "internal": internal_reference,
-                        "competitor": competitor_reference,
-                        "match": True,
-                        "reason": "REFERENCE_EXACT_MATCH",
-                    }
-                },
-                "status": "MATCHED",
-                "reason": "REFERENCE_EXACT_MATCH",
+                "featuresDetails": feature_details,
+                "criticalMismatches": [],
             }
 
-            return 95.0, details
+            return 100.0, details
+
+    # ============================================================
+    # 1. Marque différente = rejet direct
+    # ============================================================
+
+    if internal_brand and competitor_brand and internal_brand != competitor_brand:
+        reasons.append(
+            f"Marques différentes : {internal_brand} ≠ {competitor_brand}. "
+            "Le produit concurrent ne peut pas être le même produit."
+        )
 
         details = {
+            "same_product": False,
+            "sameProduct": False,
+            "score": 0,
+            "match_type": "NO_MATCH",
+            "matchType": "NO_MATCH",
+            "status": "IGNORED",
+            "reasons": reasons,
             "nameScore": name_score,
             "descriptionScore": description_score,
-            "featuresScore": 0,
+            "featuresScore": feature_score,
             "internalFeatures": internal_features,
             "competitorFeatures": competitor_features,
-            "featuresDetails": {
-                "reference": {
-                    "internal": internal_reference,
-                    "competitor": competitor_reference,
-                    "match": False,
-                    "reason": "REFERENCE_MISMATCH",
-                }
-            },
-            "status": "IGNORED",
-            "reason": "REFERENCE_MISMATCH",
+            "featuresDetails": feature_details,
+            "criticalMismatches": ["marque"],
         }
 
         return 0.0, details
 
     # ============================================================
-    # Fallback si une référence manque : ancien scoring contrôlé
+    # 2. Même référence extraite = match certain
     # ============================================================
-    features_score, features_details = feature_similarity(
-        internal_features,
-        competitor_features,
+
+    if internal_ref and competitor_ref and internal_ref == competitor_ref:
+        reasons.append(
+            "Référence/SKU identique entre le produit interne et le produit concurrent."
+        )
+
+        if internal_brand and competitor_brand and internal_brand == competitor_brand:
+            reasons.append("Marque identique.")
+
+        details = {
+            "same_product": True,
+            "sameProduct": True,
+            "score": 100,
+            "match_type": "EXACT_REFERENCE",
+            "matchType": "EXACT_REFERENCE",
+            "status": "MATCHED",
+            "reasons": reasons,
+            "nameScore": name_score,
+            "descriptionScore": description_score,
+            "featuresScore": 100,
+            "internalFeatures": internal_features,
+            "competitorFeatures": competitor_features,
+            "featuresDetails": feature_details,
+            "criticalMismatches": [],
+        }
+
+        return 100.0, details
+
+    # ============================================================
+    # 3. Références différentes : comparer les caractéristiques
+    # ============================================================
+
+    if internal_ref and competitor_ref and internal_ref != competitor_ref:
+        ref_similarity = text_similarity(internal_ref, competitor_ref)
+        reasons.append(
+            f"Références différentes : {internal_ref} ≠ {competitor_ref} "
+            f"(similarité {ref_similarity}%)."
+        )
+    else:
+        ref_similarity = 0
+        reasons.append("Référence absente ou non comparable.")
+
+    mismatches = _critical_mismatches(internal_features, competitor_features)
+
+    if mismatches:
+        reasons.append(
+            "Produit rejeté car caractéristique critique différente : "
+            + ", ".join(mismatches)
+            + "."
+        )
+
+        details = {
+            "same_product": False,
+            "sameProduct": False,
+            "score": min(feature_score, 59),
+            "match_type": "NO_MATCH",
+            "matchType": "NO_MATCH",
+            "status": "IGNORED",
+            "reasons": reasons,
+            "nameScore": name_score,
+            "descriptionScore": description_score,
+            "featuresScore": feature_score,
+            "internalFeatures": internal_features,
+            "competitorFeatures": competitor_features,
+            "featuresDetails": feature_details,
+            "criticalMismatches": mismatches,
+        }
+
+        return float(min(feature_score, 59)), details
+
+    # ============================================================
+    # 4. Vérification des specs principales
+    # ============================================================
+
+    same_brand = _same(
+        internal_features.get("marque"),
+        competitor_features.get("marque"),
     )
 
-    final_score = round(
-        (name_score * 0.35)
-        + (description_score * 0.15)
-        + (features_score * 0.50),
-        2,
+    same_model = (
+        _same(internal_features.get("modele"), competitor_features.get("modele"))
+        or _similar(
+            internal_features.get("modele"),
+            competitor_features.get("modele"),
+            88,
+        )
     )
+
+    same_cpu = _same(
+        internal_features.get("processeur"),
+        competitor_features.get("processeur"),
+    )
+
+    same_ram = _same(
+        internal_features.get("ram"),
+        competitor_features.get("ram"),
+    )
+
+    same_storage = _same(
+        internal_features.get("stockage"),
+        competitor_features.get("stockage"),
+    )
+
+    same_screen = _same(
+        internal_features.get("ecran"),
+        competitor_features.get("ecran"),
+    )
+
+    if ref_similarity >= 75:
+        feature_score += 5
+        reasons.append("Les références sont différentes mais proches.")
+
+    if same_brand:
+        reasons.append("Marque identique.")
+
+    if same_model:
+        reasons.append("Modèle/gamme identique ou très proche.")
+
+    if same_cpu:
+        reasons.append("Processeur identique.")
+
+    if same_ram:
+        reasons.append("RAM identique.")
+
+    if same_storage:
+        reasons.append("Stockage identique.")
+
+    if same_screen:
+        reasons.append("Taille écran identique.")
+
+    # ============================================================
+    # 5. Cas spécial montres connectées / Mibro
+    # ============================================================
+
+    internal_text = normalize_text(f"{internal_name} {internal_desc}")
+    competitor_text = normalize_text(f"{competitor_name} {competitor_desc}")
+
+    if "mibro" in internal_text and "mibro" in competitor_text:
+        if "c4" in internal_text and "c4" in competitor_text:
+            final_score = 88
+            match_type = "HIGH_CONFIDENCE"
+            same_product = True
+            status = "MATCHED"
+
+            reasons.append(
+                "Cas montre connectée : marque Mibro et modèle C4 détectés dans les deux produits."
+            )
+
+            details = {
+                "same_product": same_product,
+                "sameProduct": same_product,
+                "score": final_score,
+                "match_type": match_type,
+                "matchType": match_type,
+                "status": status,
+                "reasons": reasons,
+                "nameScore": name_score,
+                "descriptionScore": description_score,
+                "featuresScore": feature_score,
+                "internalFeatures": internal_features,
+                "competitorFeatures": competitor_features,
+                "featuresDetails": feature_details,
+                "criticalMismatches": [],
+            }
+
+            return float(final_score), details
+
+    # ============================================================
+    # 6. Décision finale générale
+    # ============================================================
+
+    if same_brand and same_model and same_cpu and same_ram and same_storage:
+        final_score = max(90, feature_score)
+        match_type = "HIGH_CONFIDENCE"
+        same_product = True
+        status = "MATCHED"
+
+        reasons.append(
+            "Référence différente, mais marque/modèle/processeur/RAM/stockage sont identiques."
+        )
+
+    elif same_brand and same_model and same_ram and same_storage:
+        final_score = max(72, feature_score)
+        match_type = "MEDIUM_CONFIDENCE"
+        same_product = False
+        status = "MANUAL_REVIEW"
+
+        reasons.append(
+            "Produit proche, mais une caractéristique critique manque ou reste à confirmer."
+        )
+
+    else:
+        internal_filled = sum(
+            1 for k in ["marque", "modele", "processeur", "ram", "stockage"]
+            if internal_features.get(k)
+        )
+
+        competitor_filled = sum(
+            1 for k in ["marque", "modele", "processeur", "ram", "stockage"]
+            if competitor_features.get(k)
+        )
+
+        if internal_filled <= 2 or competitor_filled <= 2:
+            text_score = max(name_score, description_score * 0.7)
+
+            if text_score >= SCORE_AUTO:
+                final_score = round(text_score, 2)
+                match_type = "HIGH_CONFIDENCE"
+                same_product = True
+                status = "MATCHED"
+
+                reasons.append(
+                    f"Peu de caractéristiques extraites — décision basée sur similarité textuelle "
+                    f"(nom: {name_score}%, description: {description_score}%)."
+                )
+
+            elif text_score >= SCORE_MANUAL:
+                final_score = round(text_score, 2)
+                match_type = "MEDIUM_CONFIDENCE"
+                same_product = False
+                status = "MANUAL_REVIEW"
+
+                reasons.append(
+                    f"Peu de caractéristiques extraites — produit à vérifier manuellement "
+                    f"(nom: {name_score}%, description: {description_score}%)."
+                )
+
+            else:
+                final_score = min(feature_score, 59)
+                match_type = "NO_MATCH"
+                same_product = False
+                status = "IGNORED"
+
+                reasons.append(
+                    "Les caractéristiques et la similarité textuelle sont insuffisantes."
+                )
+
+        else:
+            final_score = min(feature_score, 59)
+            match_type = "NO_MATCH"
+            same_product = False
+            status = "IGNORED"
+
+            reasons.append(
+                "Les caractéristiques disponibles ne suffisent pas pour confirmer que c'est le même produit."
+            )
 
     details = {
+        "same_product": same_product,
+        "sameProduct": same_product,
+        "score": round(float(final_score), 2),
+        "match_type": match_type,
+        "matchType": match_type,
+        "status": status,
+        "reasons": reasons,
         "nameScore": name_score,
         "descriptionScore": description_score,
-        "featuresScore": features_score,
+        "featuresScore": feature_score,
         "internalFeatures": internal_features,
         "competitorFeatures": competitor_features,
-        "featuresDetails": features_details,
+        "featuresDetails": feature_details,
+        "criticalMismatches": mismatches,
     }
 
-    status = match_status(final_score, details)
-
-    details["status"] = status
-
-    return final_score, details
+    return round(float(final_score), 2), details

@@ -1,109 +1,160 @@
 from datetime import date, timedelta
+from typing import Optional
+
 from sqlalchemy.orm import Session
+from sqlalchemy.dialects.postgresql import insert
 
 from ..models.tables import SalesHistory
 
 
 def bulk_upsert_sales_history(items, db: Session):
-    count = 0
+    """
+    Import rapide de sales_history.
+
+    Correction :
+    - avant : SELECT ligne par ligne puis INSERT/UPDATE
+    - maintenant : bulk upsert PostgreSQL
+    - évite la saturation PostgreSQL pendant l'import des gros CSV
+    """
+
+    if not items:
+        return {
+            "status": "success",
+            "message": "Aucune ligne à importer.",
+            "rows": 0,
+        }
+
+    rows = []
 
     for item in items:
-        obj = (
-            db.query(SalesHistory)
-            .filter(
-                SalesHistory.date == item.date,
-                SalesHistory.store_id == item.store_id,
-                SalesHistory.product_id == item.product_id,
-            )
-            .first()
+        rows.append(
+            {
+                "date": item.date,
+                "store_id": item.store_id,
+                "product_id": item.product_id,
+                "category": item.category,
+                "region": item.region,
+                "sales": item.units_sold,
+                "price": item.price,
+                "stock": item.inventory_level,
+                "discount": item.discount,
+                "competitor_pricing": item.competitor_pricing,
+                "units_ordered": item.units_ordered,
+                "weather_condition": item.weather_condition,
+                "holiday_promotion": item.holiday_promotion,
+                "seasonality": item.seasonality,
+            }
         )
 
-        if not obj:
-            obj = SalesHistory(
-                date=item.date,
-                store_id=item.store_id,
-                product_id=item.product_id,
-            )
-            db.add(obj)
+    stmt = insert(SalesHistory).values(rows)
 
-        obj.category = item.category
-        obj.region = item.region
-        obj.sales = item.units_sold
-        obj.price = item.price
-        obj.stock = item.inventory_level
-        obj.discount = item.discount
-        obj.competitor_pricing = item.competitor_pricing
-        obj.units_ordered = item.units_ordered
-        obj.weather_condition = item.weather_condition
-        obj.holiday_promotion = item.holiday_promotion
-        obj.seasonality = item.seasonality
+    stmt = stmt.on_conflict_do_update(
+        index_elements=["date", "store_id", "product_id"],
+        set_={
+            "category": stmt.excluded.category,
+            "region": stmt.excluded.region,
+            "sales": stmt.excluded.sales,
+            "price": stmt.excluded.price,
+            "stock": stmt.excluded.stock,
+            "discount": stmt.excluded.discount,
+            "competitor_pricing": stmt.excluded.competitor_pricing,
+            "units_ordered": stmt.excluded.units_ordered,
+            "weather_condition": stmt.excluded.weather_condition,
+            "holiday_promotion": stmt.excluded.holiday_promotion,
+            "seasonality": stmt.excluded.seasonality,
+        },
+    )
 
-        count += 1
-
+    db.execute(stmt)
     db.commit()
-    return {"status": "success", "rows": count}
+
+    return {
+        "status": "success",
+        "message": "Sales history importé avec succès.",
+        "rows": len(rows),
+    }
 
 
 def fetch_sales_history(
     db: Session,
-    store_id: str,
-    product_id: str,
-    target_date: date,
-    n_days: int = 90,
+    product_id: Optional[str] = None,
+    store_id: Optional[str] = None,
+    category: Optional[str] = None,
+    region: Optional[str] = None,
+    start_date: Optional[date] = None,
+    end_date: Optional[date] = None,
+    limit: int = 1000,
 ):
-    start = target_date - timedelta(days=n_days)
+    """
+    Récupère l'historique des ventes avec filtres optionnels.
 
-    rows = (
-        db.query(SalesHistory)
-        .filter(
-            SalesHistory.store_id == store_id,
-            SalesHistory.product_id == product_id,
-            SalesHistory.date >= start,
-            SalesHistory.date < target_date,
-        )
-        .order_by(SalesHistory.date)
-        .all()
-    )
+    Cette fonction est utilisée par les routes API.
+    Il ne faut pas la supprimer.
+    """
 
-    return [
-        {
-            "date": r.date.isoformat(),
-            "sales": r.sales,
-            "price": r.price,
-            "stock": r.stock,
-            "discount": r.discount,
-            "competitor_pricing": r.competitor_pricing,
-            "units_ordered": r.units_ordered,
-            "weather_condition": r.weather_condition,
-            "holiday_promotion": r.holiday_promotion,
-            "seasonality": r.seasonality,
-            "category": r.category,
-            "region": r.region,
-        }
-        for r in rows
-    ]
+    query = db.query(SalesHistory)
 
+    if product_id:
+        query = query.filter(SalesHistory.product_id == product_id)
 
-def fetch_recent_product_history(db: Session, product_id: str, limit: int = 30):
-    rows = (
-        db.query(SalesHistory)
-        .filter(SalesHistory.product_id == product_id)
-        .order_by(SalesHistory.date.desc())
+    if store_id:
+        query = query.filter(SalesHistory.store_id == store_id)
+
+    if category:
+        query = query.filter(SalesHistory.category == category)
+
+    if region:
+        query = query.filter(SalesHistory.region == region)
+
+    if start_date:
+        query = query.filter(SalesHistory.date >= start_date)
+
+    if end_date:
+        query = query.filter(SalesHistory.date <= end_date)
+
+    return (
+        query.order_by(SalesHistory.date.desc())
         .limit(limit)
         .all()
     )
 
-    rows = list(reversed(rows))
 
-    return [
-        {
-            "date": r.date.isoformat(),
-            "sales": float(r.sales or 0.0),
-            "price": float(r.price or 0.0),
-            "stock": float(r.stock or 0.0) if r.stock is not None else 0.0,
-            "discount": float(r.discount or 0.0),
-            "category": r.category,
-            "region": r.region,
-        }
-        for r in rows
-    ]
+def fetch_recent_product_history(
+    product_id: str,
+    db: Session,
+    days: int = 30,
+    limit: int = 1000,
+):
+    """
+    Récupère l'historique récent d'un produit.
+
+    Important :
+    - product_id ici correspond souvent au SKU dans ton projet
+    - utilisé par les endpoints de forecast/KPI/recommandation
+    """
+
+    if not product_id:
+        return []
+
+    max_date = (
+        db.query(SalesHistory.date)
+        .filter(SalesHistory.product_id == product_id)
+        .order_by(SalesHistory.date.desc())
+        .first()
+    )
+
+    if not max_date:
+        return []
+
+    last_date = max_date[0]
+    start_date = last_date - timedelta(days=days)
+
+    return (
+        db.query(SalesHistory)
+        .filter(SalesHistory.product_id == product_id)
+        .filter(SalesHistory.date >= start_date)
+        .filter(SalesHistory.date <= last_date)
+        .order_by(SalesHistory.date.asc())
+        .limit(limit)
+        .all()
+    )

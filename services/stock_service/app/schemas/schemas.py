@@ -1,10 +1,10 @@
 from datetime import date, datetime
-from pydantic import BaseModel, field_validator
-from typing import Optional
+from pydantic import BaseModel, Field, field_validator
+from typing import Literal, Optional
 
 
 class ProductIn(BaseModel):
-    id: int
+    id: Optional[int] = None
     sku: str
     nom: str
     categorie: Optional[str] = None
@@ -91,7 +91,7 @@ class ProductPromotionIn(BaseModel):
 
 
 class CompetitorIn(BaseModel):
-    id: int
+    id: Optional[int] = None
     nom: str
     siteurl: Optional[str] = None
     actif: Optional[bool] = None
@@ -100,7 +100,7 @@ class CompetitorIn(BaseModel):
 
 
 class ProductCompetitorIn(BaseModel):
-    id: int
+    id: Optional[int] = None
     urlproduit: Optional[str] = None
     skuconcurrent: Optional[str] = None
     nomproduit: Optional[str] = None
@@ -114,7 +114,7 @@ class ProductCompetitorIn(BaseModel):
 
 
 class StockMovementIn(BaseModel):
-    id: int
+    id: Optional[int] = None
     produit_id: int
     type: str
     quantite: int
@@ -239,3 +239,47 @@ class SupplierOrderLineUpdate(BaseModel):
     quantiteCommandee: Optional[int] = None
     quantiteRecue: Optional[int] = None
     prixAchatUnitaire: Optional[float] = None      
+
+class PriceApprovalRequest(BaseModel):
+    prixValide: float
+    justification: Optional[str] = None
+    strategy: Optional[str] = "competitive"
+
+StockMovementType = Literal[
+    "ENTREE",
+    "SORTIE",
+    "AJUSTEMENT_POSITIF",
+    "AJUSTEMENT_NEGATIF",
+    "RESERVATION",
+    "ANNULATION_RESERVATION",
+]
+class StockMovementCreate(BaseModel):
+    produit_id: int
+    type: StockMovementType
+    quantite: int = Field(gt=0)
+    justification: Optional[str] = None
+    dateMouvement: Optional[datetime] = None
+
+
+class StockMovementUpdate(BaseModel):
+    type: Optional[StockMovementType] = None
+    quantite: Optional[int] = Field(default=None, gt=0)
+    justification: Optional[str] = None
+    dateMouvement: Optional[datetime] = None
+
+
+class StockMovementOut(BaseModel):
+    id: int
+    produit_id: int
+    type: str
+    quantite: int
+    dateMouvement: datetime
+    justification: Optional[str] = None
+    
+class PostImportWorkflowRequest(BaseModel):
+    table_name: str
+    max_products: int = 30
+    async_mode: bool = True
+
+    # Nouveau : permet de scanner uniquement les produits importés
+    product_ids: Optional[list[int]] = None    

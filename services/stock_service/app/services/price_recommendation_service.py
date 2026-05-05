@@ -1,212 +1,316 @@
 from __future__ import annotations
 
-from statistics import median
-from typing import Optional
+from statistics import mean
+from typing import Any
 
+from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
 from app.models.tables import Product, ProductCompetitor
 
 
-DEFAULT_MIN_MARGIN = 0.20
+AUTO_MATCH_MIN_SCORE = 85
 
 
-def _normalize_margin(value: Optional[float]) -> float:
+def _get_attr(obj: Any, *names: str, default=None):
+    for name in names:
+        if hasattr(obj, name):
+            value = getattr(obj, name)
+            if value is not None:
+                return value
+    return default
+
+
+def _safe_float(value, default=None):
+    try:
+        if value is None:
+            return default
+        return float(value)
+    except Exception:
+        return default
+
+
+def _round_price(value: float | None) -> float | None:
     if value is None:
-        return DEFAULT_MIN_MARGIN
+        return None
 
-    if value > 1:
-        return value / 100
-
-    return value
+    return round(float(value), 2)
 
 
-def _is_available(value: Optional[str]) -> bool:
-    if not value:
-        return True
+def _normalize_margin(value) -> float:
+    margin = _safe_float(value, 0.2)
 
-    text = value.lower()
+    if margin is None:
+        return 0.2
 
-    bad_words = [
-        "hors stock",
-        "rupture",
-        "indisponible",
-        "out of stock",
-        "non disponible",
-    ]
+    if margin > 1:
+        return margin / 100
 
-    return not any(word in text for word in bad_words)
+    if margin < 0:
+        return 0.2
+
+    return margin
 
 
-def _effective_price(pc: ProductCompetitor) -> float:
-    if pc.is_promo and pc.ancien_prix_concurrent and pc.ancien_prix_concurrent > 0:
-        return pc.ancien_prix_concurrent
+def _calculate_price_floor(prix_cout: float | None, marge_reservee) -> float | None:
+    if prix_cout is None or prix_cout <= 0:
+        return None
 
-    return pc.prix_concurrent
+    margin = _normalize_margin(marge_reservee)
+
+    return _round_price(prix_cout * (1 + margin))
 
 
-def calculate_price_recommendation(
-    product: Product,
-    db: Session,
-    min_margin: Optional[float] = None,
-    strategy: str = "competitive",
-) -> dict:
-    effective_margin = _normalize_margin(
-        min_margin if min_margin is not None else product.marge_reservee
-    )
+def _calculate_direction(prix_actuel: float | None, prix_recommande: float | None):
+    if prix_actuel is None or prix_recommande is None:
+        return "KEEP", None, None
 
-    price_floor = None
+    ecart = round(prix_recommande - prix_actuel, 2)
 
-    if product.prix_cout and product.prix_cout > 0:
-        price_floor = round(product.prix_cout * (1 + effective_margin), 2)
-
-    competitor_products = (
-        db.query(ProductCompetitor)
-        .filter(
-            ProductCompetitor.produit_id == product.id,
-            ProductCompetitor.statut_matching == "MATCHED",
-            ProductCompetitor.score_matching >= 75,
-            ProductCompetitor.prix_concurrent.isnot(None),
-        )
-        .all()
-    )
-
-    usable = []
-
-    for pc in competitor_products:
-        if not pc.prix_concurrent or pc.prix_concurrent <= 0:
-            continue
-
-        available = _is_available(pc.disponibilite)
-        reference_price = _effective_price(pc)
-
-        if not reference_price or reference_price <= 0:
-            continue
-
-        weight = (pc.score_matching or 75) / 100
-
-        if not available:
-            weight *= 0.45
-
-        if pc.is_promo:
-            weight *= 0.70
-
-        if not pc.fiable:
-            weight *= 0.50
-
-        usable.append({
-            "competitorProductId": pc.id,
-            "concurrentId": pc.concurrent_id,
-            "nomProduit": pc.nom_produit,
-            "urlProduit": pc.url_produit,
-
-            "prixActuelConcurrent": pc.prix_concurrent,
-            "ancienPrixConcurrent": pc.ancien_prix_concurrent,
-            "prixReferenceUtilise": reference_price,
-
-            "isPromo": pc.is_promo,
-            "disponibilite": pc.disponibilite,
-            "available": available,
-
-            "scoreMatching": pc.score_matching,
-            "weight": round(weight, 3),
-        })
-
-    if not usable:
-        fallback = product.prix_vente
-
-        if fallback is None and price_floor is not None:
-            fallback = price_floor
-
-        return {
-            "productId": product.id,
-            "sku": product.sku,
-            "nom": product.nom,
-            "prixActuel": product.prix_vente,
-            "prixCout": product.prix_cout,
-            "margeMinimale": effective_margin,
-            "prixPlancher": price_floor,
-            "prixRecommande": fallback,
-            "direction": "STABLE",
-            "variationPercent": 0,
-            "source": "NO_COMPETITOR_MATCH",
-            "competitorCount": len(competitor_products),
-            "usableCompetitorCount": 0,
-            "message": "Aucun prix concurrent matché fiable. Recommandation basée sur le prix actuel ou le prix plancher.",
-        }
-
-    prices = [x["prixReferenceUtilise"] for x in usable]
-    weights = [x["weight"] for x in usable]
-
-    median_price = median(prices)
-
-    total_weight = sum(weights)
-    weighted_price = (
-        sum(item["prixReferenceUtilise"] * item["weight"] for item in usable) / total_weight
-        if total_weight > 0
-        else median_price
-    )
-
-    market_reference = round((median_price + weighted_price) / 2, 2)
-
-    if strategy == "premium":
-        recommended = market_reference * 1.03
-    elif strategy == "aligned":
-        recommended = market_reference
+    if prix_actuel == 0:
+        ecart_pct = None
     else:
-        recommended = market_reference * 0.99
+        ecart_pct = round((ecart / prix_actuel) * 100, 2)
 
-    if price_floor is not None:
-        recommended = max(recommended, price_floor)
-
-    recommended = round(recommended, 2)
-
-    current_price = product.prix_vente or 0
-
-    if current_price > 0:
-        variation_percent = round(((recommended - current_price) / current_price) * 100, 2)
-    else:
-        variation_percent = None
-
-    if current_price == 0:
-        direction = "SET_PRICE"
-    elif recommended > current_price:
+    if abs(ecart) < 0.01:
+        direction = "KEEP"
+    elif ecart > 0:
         direction = "UP"
-    elif recommended < current_price:
-        direction = "DOWN"
     else:
-        direction = "STABLE"
+        direction = "DOWN"
+
+    return direction, ecart, ecart_pct
+
+
+def _competitor_status(pc) -> str:
+    value = _get_attr(
+        pc,
+        "statut_matching",
+        "statutMatching",
+        "match_status",
+        "matchStatus",
+        default=None,
+    )
+
+    return str(value or "").upper()
+
+
+def _competitor_score(pc) -> float:
+    value = _get_attr(
+        pc,
+        "score_matching",
+        "scoreMatching",
+        "match_score",
+        "matchScore",
+        default=0,
+    )
+
+    return _safe_float(value, 0) or 0
+
+
+def _competitor_price(pc) -> float | None:
+    price = _get_attr(
+        pc,
+        "prix_concurrent",
+        "prixConcurrent",
+        "price",
+        default=None,
+    )
+
+    price = _safe_float(price, None)
+
+    if price is None or price <= 0:
+        return None
+
+    return price
+
+
+def _is_usable_competitor(pc) -> bool:
+    price = _competitor_price(pc)
+
+    if price is None:
+        return False
+
+    status = _competitor_status(pc)
+    score = _competitor_score(pc)
+
+    valid_statuses = {"MATCHED", "AUTO_MATCHED", "VALIDATED", "MANUAL_VALIDATED"}
+
+    if status and status not in valid_statuses:
+        return False
+
+    if score and score < AUTO_MATCH_MIN_SCORE:
+        return False
+
+    return True
+
+
+def _serialize_competitor(pc) -> dict:
+    return {
+        "id": pc.id,
+        "concurrentId": _get_attr(pc, "concurrent_id", "concurrentId"),
+        "nomProduit": _get_attr(pc, "nom_produit", "nomProduit"),
+        "urlProduit": _get_attr(pc, "url_produit", "urlProduit"),
+        "skuConcurrent": _get_attr(pc, "sku_concurrent", "skuConcurrent"),
+        "prixConcurrent": _competitor_price(pc),
+        "scoreMatching": _competitor_score(pc),
+        "statutMatching": _competitor_status(pc),
+        "fiable": _get_attr(pc, "fiable", default=None),
+    }
+
+
+def _internal_price_recommendation(
+    product: Product,
+    prix_actuel: float | None,
+    prix_cout: float | None,
+    marge_minimale: float,
+    prix_plancher: float | None,
+    reason: str,
+):
+    if prix_plancher is not None and prix_plancher > 0:
+        prix_recommande = prix_plancher
+    elif prix_cout is not None and prix_cout > 0:
+        prix_recommande = prix_cout * (1 + marge_minimale)
+    elif prix_actuel is not None and prix_actuel > 0:
+        prix_recommande = prix_actuel
+    else:
+        prix_recommande = 0
+
+    prix_recommande = _round_price(prix_recommande)
+
+    direction, ecart, ecart_pct = _calculate_direction(prix_actuel, prix_recommande)
 
     return {
+        "status": "success",
+        "source": "INTERNE_COUT_MARGE",
         "productId": product.id,
         "sku": product.sku,
         "nom": product.nom,
-
-        "prixActuel": product.prix_vente,
-        "prixCout": product.prix_cout,
-        "margeMinimale": effective_margin,
-        "prixPlancher": price_floor,
-
-        "prixRecommande": recommended,
+        "prixActuel": prix_actuel,
+        "prixCout": prix_cout,
+        "margeMinimale": marge_minimale,
+        "prixPlancher": prix_plancher,
+        "prixRecommande": prix_recommande,
         "direction": direction,
-        "variationPercent": variation_percent,
-
-        "strategy": strategy,
-        "source": "COMPETITOR_MATCHING",
-
-        "market": {
-            "min": min(prices),
-            "max": max(prices),
-            "median": round(median_price, 2),
-            "weighted": round(weighted_price, 2),
-            "reference": market_reference,
-        },
-
-        "competitorCount": len(competitor_products),
-        "usableCompetitorCount": len(usable),
-        "promoCompetitorCount": len([x for x in usable if x["isPromo"]]),
-
-        "competitorsUsed": usable,
-
-        "message": "Prix recommandé calculé avec les produits concurrents matchés, les promotions, la disponibilité, le score de matching, le coût et la marge minimale.",
+        "ecartPrixActuel": ecart,
+        "ecartPourcentage": ecart_pct,
+        "variationPercent": ecart_pct,
+        "competitorCount": 0,
+        "usableCompetitorCount": 0,
+        "prixConcurrentMin": None,
+        "prixConcurrentMoyen": None,
+        "prixConcurrentMax": None,
+        "market": None,
+        "competitorsUsed": [],
+        "message": reason,
     }
+
+
+def calculate_price_recommendation(product_id: int, db: Session) -> dict:
+    product = db.query(Product).filter(Product.id == product_id).first()
+
+    if not product:
+        raise HTTPException(status_code=404, detail="Produit introuvable.")
+
+    prix_actuel = _safe_float(_get_attr(product, "prix_vente", "prixVente"), None)
+    prix_cout = _safe_float(_get_attr(product, "prix_cout", "prixCout"), None)
+
+    marge_minimale = _normalize_margin(
+        _get_attr(product, "marge_reservee", "margeReservee", default=0.2)
+    )
+
+    prix_plancher = _calculate_price_floor(prix_cout, marge_minimale)
+
+    competitor_products = (
+        db.query(ProductCompetitor)
+        .filter(ProductCompetitor.produit_id == product_id)
+        .all()
+    )
+
+    usable_competitors = [
+        pc for pc in competitor_products if _is_usable_competitor(pc)
+    ]
+
+    if not usable_competitors:
+        return _internal_price_recommendation(
+            product=product,
+            prix_actuel=prix_actuel,
+            prix_cout=prix_cout,
+            marge_minimale=marge_minimale,
+            prix_plancher=prix_plancher,
+            reason=(
+                "Aucun produit concurrent fiable n'a été trouvé pour ce produit. "
+                "La recommandation est basée sur les données internes : coût, marge minimale et prix actuel."
+            ),
+        )
+
+    competitor_prices = [_competitor_price(pc) for pc in usable_competitors]
+    competitor_prices = [p for p in competitor_prices if p is not None and p > 0]
+
+    if not competitor_prices:
+        return _internal_price_recommendation(
+            product=product,
+            prix_actuel=prix_actuel,
+            prix_cout=prix_cout,
+            marge_minimale=marge_minimale,
+            prix_plancher=prix_plancher,
+            reason=(
+                "Des concurrents existent, mais aucun prix concurrent exploitable n'a été trouvé. "
+                "La recommandation est basée sur les données internes."
+            ),
+        )
+
+    prix_min = min(competitor_prices)
+    prix_max = max(competitor_prices)
+    prix_moyen = mean(competitor_prices)
+
+    # Recommandation hybride :
+    # - ne jamais descendre sous le prix plancher
+    # - se placer légèrement sous la moyenne marché si possible
+    # - utiliser la concurrence uniquement si le matching est fiable
+    target_market_price = prix_moyen * 0.98
+
+    if prix_plancher is not None:
+        prix_recommande = max(prix_plancher, target_market_price)
+    else:
+        prix_recommande = target_market_price
+
+    prix_recommande = _round_price(prix_recommande)
+
+    direction, ecart, ecart_pct = _calculate_direction(prix_actuel, prix_recommande)
+
+    return {
+        "status": "success",
+        "source": "HYBRIDE_INTERNE_CONCURRENCE",
+        "productId": product.id,
+        "sku": product.sku,
+        "nom": product.nom,
+        "prixActuel": prix_actuel,
+        "prixCout": prix_cout,
+        "margeMinimale": marge_minimale,
+        "prixPlancher": prix_plancher,
+        "prixRecommande": prix_recommande,
+        "direction": direction,
+        "ecartPrixActuel": ecart,
+        "ecartPourcentage": ecart_pct,
+        "variationPercent": ecart_pct,
+        "competitorCount": len(competitor_products),
+        "usableCompetitorCount": len(usable_competitors),
+        "prixConcurrentMin": _round_price(prix_min),
+        "prixConcurrentMoyen": _round_price(prix_moyen),
+        "prixConcurrentMax": _round_price(prix_max),
+        "market": {
+            "min": _round_price(prix_min),
+            "avg": _round_price(prix_moyen),
+            "max": _round_price(prix_max),
+        },
+        "competitorsUsed": [_serialize_competitor(pc) for pc in usable_competitors],
+        "message": (
+            "Recommandation calculée avec les données internes et les produits concurrents fiables. "
+            "Les concurrents douteux ou non correspondants sont ignorés."
+        ),
+    }
+
+
+def get_price_recommendation_service(product_id: int, db: Session) -> dict:
+    return calculate_price_recommendation(product_id, db)

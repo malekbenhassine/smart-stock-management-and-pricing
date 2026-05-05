@@ -1,14 +1,9 @@
-import numpy as np
-import pandas as pd
-from datetime import timedelta
 from sqlalchemy.orm import Session
-from app.services.explanation_builder import build_restock_explanation
+
 from app.database import PredictionLog
-from app.services.stock_client import get_recent_history_from_stock_service
 from app.schemas import BaseRequest, RestockResponse
-from app.model_loader import get_model
-from app.feature_builder import build_features
-from app.core.config import RESTOCK_THRESHOLD, RESTOCK_MULTIPLIER
+from app.services.demand_service import forecast_demand_service
+from app.services.stock_client import get_recent_history_from_stock_service
 
 MIN_HISTORY_DAYS_FOR_ML = 14
 
@@ -17,141 +12,146 @@ def _recent_sales(db: Session, req: BaseRequest, limit: int = 30):
     return get_recent_history_from_stock_service(product_id=req.product_id, limit=limit)
 
 
-def _fallback_daily_demand(req: BaseRequest, history_rows):
-    if history_rows:
-        values = [float(r["sales"]) for r in history_rows if r.get("sales") is not None]
-        return float(np.mean(values)) if values else 0.0
+def _safe_float(value, default: float = 0.0) -> float:
+    try:
+        if value is None:
+            return default
+        return float(value)
+    except (TypeError, ValueError):
+        return default
 
-    threshold_min = float(req.threshold_min or 0.0)
-    return max(1.0, threshold_min / 7) if threshold_min > 0 else 1.0
+
+def _fallback_weekly_demand(req: BaseRequest, history_rows) -> float:
+    """
+    Fallback si forecast_demand_service échoue.
+    Ici on retourne une demande hebdomadaire, pas journalière.
+    """
+    values = []
+
+    for row in history_rows or []:
+        sales = row.get("sales")
+        if sales is not None:
+            values.append(_safe_float(sales))
+
+    if values:
+        avg_daily_sales = sum(values) / len(values)
+        return round(avg_daily_sales * 7, 1)
+
+    threshold_min = _safe_float(req.threshold_min)
+
+    if threshold_min > 0:
+        return round(threshold_min, 1)
+
+    return 1.0
 
 
-def _predict_one_day(model, trained_features, use_log, db, req, target_date, price, stock):
-    feature_row = build_features(
-        db=db,
-        store_id=req.store_id,
-        product_id=req.product_id,
-        target_date=target_date,
-        price=price,
-        stock=stock,
-        discount=req.discount,
-        competitor_pricing=req.competitor_pricing,
-        units_ordered=req.units_ordered,
-        weather_condition=req.weather_condition,
-        category=req.category,
-        region=req.region,
-        trained_features=trained_features,
+def _compute_urgency(days_remaining: float, restock_needed: bool) -> str:
+    if not restock_needed:
+        return "low"
+
+    if days_remaining <= 7:
+        return "critical"
+
+    if days_remaining <= 14:
+        return "high"
+
+    if days_remaining <= 30:
+        return "medium"
+
+    return "low"
+
+
+def _build_reasoning(
+    current_stock: float,
+    weekly_demand: float,
+    weeks_remaining: float,
+    restock_needed: bool,
+    recommended_qty: float,
+    threshold_min: float,
+    reorder_point: float,
+) -> str:
+    if restock_needed:
+        return (
+            f"Réassort recommandé : le stock actuel est de {current_stock:.0f} unité(s), "
+            f"la demande prévue est de {weekly_demand:.1f} unité(s) sur la prochaine semaine, "
+            f"et le point de commande est estimé à {reorder_point:.0f} unité(s). "
+            f"Commander {recommended_qty:.0f} unité(s) pour revenir vers le niveau cible."
+        )
+
+    return (
+        f"Aucun réassort nécessaire : le stock actuel est de {current_stock:.0f} unité(s), "
+        f"la demande prévue est de {weekly_demand:.1f} unité(s) sur la prochaine semaine, "
+        f"avec une couverture estimée à {weeks_remaining:.2f} semaine(s). "
+        f"Le stock est supérieur au seuil minimum de {threshold_min:.0f} unité(s)."
     )
-    X = pd.DataFrame([feature_row])
-    raw = float(model.predict(X)[0])
-    pred = float(np.expm1(raw)) if use_log else raw
-    return max(0.0, pred)
 
 
 def recommend_restock_service(req: BaseRequest, db: Session) -> RestockResponse:
+    current_stock = _safe_float(req.stock)
+    threshold_min = _safe_float(req.threshold_min)
+    threshold_max = _safe_float(req.threshold_max)
+
     history_rows = _recent_sales(db, req, limit=30)
-    history_count = len(history_rows)
 
-    if history_count < MIN_HISTORY_DAYS_FOR_ML:
-        avg_daily_demand = round(_fallback_daily_demand(req, history_rows), 1)
-        threshold_min = float(req.threshold_min or 0.0)
-        threshold_max = float(req.threshold_max or 0.0)
+    try:
+        demand_result = forecast_demand_service(req, db)
+        weekly_demand = _safe_float(demand_result.predicted_demand)
+    except Exception:
+        weekly_demand = _fallback_weekly_demand(req, history_rows)
 
-        if avg_daily_demand > 0:
-            days_remaining = round(req.stock / avg_daily_demand, 1)
-        else:
-            days_remaining = 999.0
+    if weekly_demand <= 0:
+        weekly_demand = _fallback_weekly_demand(req, history_rows)
 
-        restock_needed = req.stock <= threshold_min
-        recommended_qty = max(0.0, threshold_max - req.stock) if restock_needed else 0.0
+    if weekly_demand > 0:
+        weeks_remaining = round(current_stock / weekly_demand, 2)
+        days_remaining = round(weeks_remaining * 7, 1)
+    else:
+        weeks_remaining = 999.0
+        days_remaining = 999.0
 
-        if days_remaining <= 1:
-            urgency = "critical"
-        elif days_remaining <= 3:
-            urgency = "high"
-        elif days_remaining <= 7:
-            urgency = "medium"
-        else:
-            urgency = "low"
+    safety_stock = weekly_demand * 2
+    reorder_point = max(threshold_min, weekly_demand + safety_stock)
 
-        reasoning = build_restock_explanation(
-            current_stock=req.stock,
-            predicted_demand=avg_daily_demand,
-            recommended_qty=recommended_qty,
-            days_remaining=days_remaining,
-            urgency=urgency,
-            threshold_min=threshold_min,
-            threshold_max=threshold_max,
-            used_rule_based=True,
-        )
-
-        log = PredictionLog(
-            store_id=req.store_id,
-            product_id=req.product_id,
-            target_date=req.date,
-            predicted_demand=avg_daily_demand,
-            restock_needed=restock_needed,
-            restock_qty=recommended_qty,
-        )
-        db.add(log)
-        db.commit()
-
-        return RestockResponse(
-            store_id=req.store_id,
-            product_id=req.product_id,
-            date=req.date,
-            current_stock=req.stock,
-            predicted_demand=avg_daily_demand,
-            restock_needed=restock_needed,
-            recommended_order_qty=round(recommended_qty, 0),
-            days_of_stock_remaining=days_remaining,
-            urgency=urgency,
-            reasoning=reasoning,
-        )
-
-    model, trained_features, use_log = get_model()
-
-    daily_demands = []
-    for offset in range(7):
-        day = req.date + timedelta(days=offset)
-        d = _predict_one_day(model, trained_features, use_log, db, req, day, req.price, req.stock)
-        daily_demands.append(d)
-
-    avg_daily_demand = float(np.mean(daily_demands))
-    total_7d_demand = float(np.sum(daily_demands))
-
-    days_remaining = round(req.stock / avg_daily_demand, 1) if avg_daily_demand > 0 else 999.0
-    restock_needed = req.stock < (RESTOCK_THRESHOLD * total_7d_demand)
+    restock_needed = (
+        current_stock <= threshold_min
+        or weeks_remaining <= 2
+        or current_stock <= reorder_point
+    )
 
     if restock_needed:
-        target_stock = RESTOCK_MULTIPLIER * total_7d_demand
-        order_qty = round(max(0.0, target_stock - req.stock), 0)
-    else:
-        order_qty = 0.0
+        if threshold_max > 0:
+            target_stock = threshold_max
+        else:
+            target_stock = current_stock + weekly_demand * 4
 
-    if days_remaining <= 1:
-        urgency = "critical"
-    elif days_remaining <= 3:
-        urgency = "high"
-    elif days_remaining <= 7:
-        urgency = "medium"
+        recommended_qty = max(0.0, target_stock - current_stock)
     else:
-        urgency = "low"
+        recommended_qty = 0.0
 
-    reasoning = (
-        f"Stock faible ({req.stock:.0f} unités). Commander {order_qty:.0f} unités."
-        if restock_needed
-        else f"Stock suffisant ({req.stock:.0f} unités) pour environ {days_remaining:.1f} jours."
+    urgency = _compute_urgency(
+        days_remaining=days_remaining,
+        restock_needed=restock_needed,
+    )
+
+    reasoning = _build_reasoning(
+        current_stock=current_stock,
+        weekly_demand=weekly_demand,
+        weeks_remaining=weeks_remaining,
+        restock_needed=restock_needed,
+        recommended_qty=recommended_qty,
+        threshold_min=threshold_min,
+        reorder_point=reorder_point,
     )
 
     log = PredictionLog(
         store_id=req.store_id,
         product_id=req.product_id,
         target_date=req.date,
-        predicted_demand=avg_daily_demand,
+        predicted_demand=weekly_demand,
         restock_needed=restock_needed,
-        restock_qty=order_qty,
+        restock_qty=recommended_qty,
     )
+
     db.add(log)
     db.commit()
 
@@ -159,10 +159,10 @@ def recommend_restock_service(req: BaseRequest, db: Session) -> RestockResponse:
         store_id=req.store_id,
         product_id=req.product_id,
         date=req.date,
-        current_stock=req.stock,
-        predicted_demand=round(avg_daily_demand, 1),
+        current_stock=current_stock,
+        predicted_demand=round(weekly_demand, 1),
         restock_needed=restock_needed,
-        recommended_order_qty=order_qty,
+        recommended_order_qty=round(recommended_qty, 0),
         days_of_stock_remaining=days_remaining,
         urgency=urgency,
         reasoning=reasoning,

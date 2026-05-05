@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import re
+import unicodedata
 from datetime import datetime
 from typing import Optional
 
@@ -77,6 +79,98 @@ def _normalize_raw_item(raw: dict) -> dict:
     }
 
 
+def _compact_ref(value: Optional[str]) -> str:
+    """
+    Normalise une référence/SKU pour comparaison robuste.
+
+    Exemples :
+    - XPAW021        -> xpaw021
+    - Réf : XPAW021 -> xpaw021
+    - xpaw-021      -> xpaw021
+    """
+    if not value:
+        return ""
+
+    value = str(value).lower().strip()
+    value = unicodedata.normalize("NFKD", value)
+    value = "".join(c for c in value if not unicodedata.combining(c))
+
+    value = value.replace("référence", "")
+    value = value.replace("reference", "")
+    value = value.replace("réf", "")
+    value = value.replace("ref", "")
+    value = value.replace("sku", "")
+    value = value.replace(":", "")
+    value = value.replace("-", "")
+    value = value.replace("_", "")
+    value = value.replace(" ", "")
+    value = value.replace("/", "")
+    value = value.replace("\\", "")
+    value = value.replace(".", "")
+
+    value = re.sub(r"[^a-z0-9]", "", value)
+
+    return value
+
+
+def _direct_reference_match(product: Product, item: ProductCompetitorCreate) -> bool:
+    """
+    Règle prioritaire : si le SKU interne existe dans le nom, SKU, URL
+    ou description du produit concurrent, alors c'est un MATCHED.
+
+    Corrige le cas Zoom : skuConcurrent peut être faux (ex: "roidisseur"),
+    mais la référence XPAW021 existe dans nomProduit ou urlProduit.
+    """
+    internal_sku = _compact_ref(getattr(product, "sku", None))
+
+    if not internal_sku:
+        return False
+
+    competitor_text = " ".join([
+        item.nomProduit or "",
+        item.skuConcurrent or "",
+        item.urlProduit or "",
+        item.descriptionConcurrent or "",
+    ])
+
+    competitor_compact = _compact_ref(competitor_text)
+
+    return internal_sku in competitor_compact
+
+
+def _compact_words(value: Optional[str]) -> str:
+    """Texte compact pour règles métier simples."""
+    return _compact_ref(value)
+
+
+def _direct_mibro_c4_match(product: Product, item: ProductCompetitorCreate) -> bool:
+    """
+    Règle de secours pour les montres Mibro C4.
+    Certains sites ne donnent pas la référence dans skuConcurrent ni dans l'URL,
+    mais le nom contient clairement Mibro C4.
+    """
+    product_text = _compact_words(" ".join([
+        getattr(product, "nom", "") or "",
+        getattr(product, "description", "") or "",
+        getattr(product, "marque", "") or "",
+        getattr(product, "sku", "") or "",
+    ]))
+
+    item_text = _compact_words(" ".join([
+        item.nomProduit or "",
+        item.skuConcurrent or "",
+        item.urlProduit or "",
+        item.descriptionConcurrent or "",
+    ]))
+
+    return (
+        "mibro" in product_text
+        and "mibro" in item_text
+        and "c4" in product_text
+        and "c4" in item_text
+    )
+
+
 # ============================================================
 # Serializer utilisé par les routes
 # ============================================================
@@ -117,9 +211,16 @@ def _find_best_product_match(
     products_cache: list[Product] | None = None,
 ):
     """
-    Optimisé :
-    - si produit_id est envoyé par scraping_service, on matche uniquement ce produit
-    - sinon on utilise le cache des produits internes chargé une seule fois
+    Matching amélioré et sécurisé.
+
+    Priorité absolue :
+    - si produit_id est envoyé par scraping_service, on teste d'abord ce produit ;
+    - si le SKU interne existe dans nom/SKU/URL/description concurrente,
+      on retourne directement MATCHED avec score 100.
+
+    Cela corrige le cas Zoom :
+    - skuConcurrent = "roidisseur" ;
+    - mais nomProduit ou urlProduit contient XPAW021.
     """
     if item.produit_id:
         products = db.query(Product).filter(Product.id == item.produit_id).all()
@@ -131,6 +232,54 @@ def _find_best_product_match(
     best_details = None
 
     for product in products:
+        # 1) Match direct par référence interne : prioritaire
+        if _direct_reference_match(product, item):
+            details = {
+                "same_product": True,
+                "sameProduct": True,
+                "score": 100,
+                "match_type": "EXACT_REFERENCE_DIRECT",
+                "matchType": "EXACT_REFERENCE_DIRECT",
+                "status": "MATCHED",
+                "reasons": [
+                    "SKU interne trouvé directement dans le nom, le SKU, l'URL ou la description du produit concurrent."
+                ],
+                "internalSku": product.sku,
+                "competitorText": " ".join([
+                    item.nomProduit or "",
+                    item.skuConcurrent or "",
+                    item.urlProduit or "",
+                    item.descriptionConcurrent or "",
+                ]),
+                "criticalMismatches": [],
+            }
+
+            return product, 100.0, details
+
+        if _direct_mibro_c4_match(product, item):
+            details = {
+                "same_product": True,
+                "sameProduct": True,
+                "score": 88,
+                "match_type": "HIGH_CONFIDENCE",
+                "matchType": "HIGH_CONFIDENCE",
+                "status": "MATCHED",
+                "reasons": [
+                    "Marque Mibro et modèle C4 détectés dans le produit interne et le produit concurrent."
+                ],
+                "internalSku": product.sku,
+                "competitorText": " ".join([
+                    item.nomProduit or "",
+                    item.skuConcurrent or "",
+                    item.urlProduit or "",
+                    item.descriptionConcurrent or "",
+                ]),
+                "criticalMismatches": [],
+            }
+
+            return product, 88.0, details
+
+        # 2) Matching classique existant
         internal_description = " ".join([
             product.description or "",
             product.marque or "",
@@ -138,11 +287,17 @@ def _find_best_product_match(
             product.categorie or "",
         ])
 
+        competitor_description = " ".join([
+            item.descriptionConcurrent or "",
+            item.skuConcurrent or "",
+            item.urlProduit or "",
+        ])
+
         score, details = compute_match_score(
             internal_name=product.nom or "",
             internal_desc=internal_description,
             competitor_name=item.nomProduit or "",
-            competitor_desc=item.descriptionConcurrent or "",
+            competitor_desc=competitor_description,
         )
 
         if score > best_score:
@@ -198,6 +353,39 @@ def _is_better_candidate(new_candidate: dict, current_candidate: dict | None) ->
 
 
 # ============================================================
+# Validation pricing : aucun match automatique n'est utilisé directement
+# ============================================================
+
+def _pricing_review_status(existing: ProductCompetitor | None, detected_status: str, score: float = 0.0) -> str:
+    """
+    Règle métier finale :
+    - Score 100 → MATCHED automatiquement (correspondance exacte certaine).
+    - Si une ligne était déjà validée MATCHED, on conserve MATCHED.
+    - Si une ligne était IGNORED (dématchée manuellement), on conserve IGNORED
+      sauf si le score est 100 (re-match forcé sur correspondance exacte).
+    - Sinon → MANUAL_REVIEW pour validation humaine.
+    """
+    detected_status = (detected_status or "IGNORED").upper()
+
+    # Score 100 → match automatique certain, on force MATCHED
+    if score >= 100:
+        return "MATCHED"
+
+    # Ligne déjà validée MATCHED → on conserve
+    if existing and getattr(existing, "statut_matching", None) == "MATCHED":
+        return "MATCHED"
+
+    # Ligne dématchée manuellement (IGNORED) → on respecte le choix humain
+    if existing and getattr(existing, "statut_matching", None) == "IGNORED":
+        return "IGNORED"
+
+    if detected_status in ("MATCHED", "MANUAL_REVIEW"):
+        return "MANUAL_REVIEW"
+
+    return "IGNORED"
+
+
+# ============================================================
 # Upsert : un seul produit concurrent par produit interne + concurrent
 # ============================================================
 
@@ -217,6 +405,10 @@ def _upsert_best_competitor_product(
         )
         .first()
     )
+
+    # Score 100 → MATCHED automatique ; sinon MANUAL_REVIEW jusqu'à validation humaine.
+    # IGNORED est conservé si l'utilisateur a dématchée manuellement.
+    status = _pricing_review_status(existing, status, score)
 
     date_collecte = _safe_parse_date(item.dateCollecte)
 
@@ -329,7 +521,13 @@ def bulk_save_scraped_with_matching(items: list[dict], db: Session) -> dict:
                 ignored += 1
                 continue
 
+            # FIX: get status from details first, fallback to match_status with score
             status = details.get("status") or match_status(score, details)
+            # Extra safety: if details has no status but score qualifies, promote it
+            if status == "IGNORED" and score >= 75:
+                status = "MATCHED"
+            elif status == "IGNORED" and score >= 60:
+                status = "MANUAL_REVIEW"
 
             if status == "IGNORED":
                 ignored += 1
@@ -366,7 +564,7 @@ def bulk_save_scraped_with_matching(items: list[dict], db: Session) -> dict:
         details = candidate["details"]
         status = candidate["status"]
 
-        _, action = _upsert_best_competitor_product(
+        saved_pc, action = _upsert_best_competitor_product(
             db=db,
             item=item,
             product=product,
@@ -374,6 +572,10 @@ def bulk_save_scraped_with_matching(items: list[dict], db: Session) -> dict:
             details=details,
             status=status,
         )
+
+        # Après upsert, le statut final peut être MANUAL_REVIEW même si le
+        # matching automatique avait détecté MATCHED.
+        status = _get_attr(saved_pc, "statut_matching", default=status)
 
         if action == "inserted":
             inserted += 1
@@ -500,6 +702,41 @@ def validate_competitor_product_service(pc_id: int, db: Session):
     return {
         "status": "success",
         "message": "Produit concurrent validé",
+        "item": _serialize_pc(pc),
+    }
+
+
+def unmatch_competitor_product_service(pc_id: int, db: Session):
+    """
+    Dématche manuellement un produit concurrent (MATCHED → MANUAL_REVIEW).
+    Le statut IGNORED sera respecté lors des futurs scrapings automatiques,
+    sauf si le score est 100 (correspondance exacte certaine).
+    """
+    pc = db.query(ProductCompetitor).filter(ProductCompetitor.id == pc_id).first()
+
+    if not pc:
+        raise HTTPException(status_code=404, detail="Produit concurrent introuvable")
+
+    if getattr(pc, "statut_matching", None) != "MATCHED":
+        raise HTTPException(
+            status_code=400,
+            detail=f"Ce produit n'est pas MATCHED (statut actuel : {pc.statut_matching})",
+        )
+
+    pc.statut_matching = "IGNORED"
+    pc.fiable = False
+
+    details = pc.details_matching or {}
+    details["status"] = "IGNORED"
+    details["unmatched_manually"] = True
+    pc.details_matching = details
+
+    db.commit()
+    db.refresh(pc)
+
+    return {
+        "status": "success",
+        "message": "Produit concurrent dématchée",
         "item": _serialize_pc(pc),
     }
 
@@ -636,7 +873,11 @@ def rematch_product_service(product_id: int, db: Session) -> dict:
             internal_name=product.nom or "",
             internal_desc=internal_description,
             competitor_name=pc.nom_produit or "",
-            competitor_desc=pc.description_concurrent or "",
+            competitor_desc=" ".join([
+                pc.description_concurrent or "",
+                pc.sku_concurrent or "",
+                pc.url_produit or "",
+            ]),
         )
 
         status = details.get("status") or match_status(score, details)
@@ -678,4 +919,4 @@ def rematch_product_service(product_id: int, db: Session) -> dict:
         "rematched": len(best_ids),
         "deletedDuplicates": deleted,
         "message": "Rematching terminé avec conservation du meilleur produit par concurrent.",
-    }    
+    }

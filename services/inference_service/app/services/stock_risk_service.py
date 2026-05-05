@@ -1,19 +1,49 @@
 import math
 from sqlalchemy.orm import Session
+
 from app.services.explanation_builder import build_stock_risk_explanation
 from app.services.stock_client import get_product_from_stock_service
 from app.services.request_builder import build_request_from_product
 from app.services.demand_service import forecast_demand_service
+from app.services.cold_start_service import get_sales_history_status
 
 
 def predict_stock_risk_service(product_id: int, db: Session) -> dict:
     product = get_product_from_stock_service(product_id)
     req = build_request_from_product(product)
 
+    history_status = get_sales_history_status(product_id=req.product_id)
+
+    if history_status["is_cold_start"]:
+        return {
+            "enabled": False,
+            "product_id": product_id,
+            "risk": "INSUFFICIENT_HISTORY",
+            "risk_level": "INSUFFICIENT_HISTORY",
+            "probability": None,
+            "risk_probability": None,
+            "likely_stockout": None,
+            "forecast_weekly_demand": None,
+            "coverage_weeks": None,
+            "history_count": history_status["history_count"],
+            "required_history_days": history_status["required_history_days"],
+            "inputs": {
+                "current_stock": float(req.stock or 0.0),
+                "threshold_min": float(req.threshold_min or 0.0),
+                "threshold_max": float(req.threshold_max or 0.0),
+                "forecast_weekly_demand": None,
+            },
+            "explanation": history_status["message"],
+            "level": "INSUFFICIENT_HISTORY",
+            "probability_value": None,
+            "probability_percent": None,
+            "analysis": history_status["message"],
+            "message": history_status["message"],
+            "stockout_probability": None,
+        }
+
     demand_result = forecast_demand_service(req, db)
 
-    # IMPORTANT:
-    # on prend les valeurs normalisées depuis req, pas les clés brutes du product JSON
     current_stock = float(req.stock or 0.0)
     threshold_min = float(req.threshold_min or 0.0)
     threshold_max = float(req.threshold_max or 0.0)
@@ -63,7 +93,9 @@ def predict_stock_risk_service(product_id: int, db: Session) -> dict:
         weekly_demand=weekly_demand,
         coverage_weeks=None if math.isinf(coverage_weeks) else coverage_weeks,
     )
+
     return {
+        "enabled": True,
         "product_id": product_id,
         "risk": risk,
         "risk_level": risk,
@@ -72,6 +104,8 @@ def predict_stock_risk_service(product_id: int, db: Session) -> dict:
         "likely_stockout": likely_stockout,
         "forecast_weekly_demand": round(weekly_demand, 2),
         "coverage_weeks": None if math.isinf(coverage_weeks) else round(coverage_weeks, 2),
+        "history_count": history_status["history_count"],
+        "required_history_days": history_status["required_history_days"],
         "inputs": {
             "current_stock": current_stock,
             "threshold_min": threshold_min,

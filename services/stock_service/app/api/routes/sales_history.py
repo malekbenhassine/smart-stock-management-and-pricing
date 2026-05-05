@@ -1,4 +1,4 @@
-from datetime import date
+from datetime import date, timedelta
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
@@ -26,12 +26,15 @@ def get_sales_history(
     n_days: int = Query(default=90, ge=1, le=365),
     db: Session = Depends(get_db),
 ):
+    start_date = target_date - timedelta(days=n_days)
+
     return fetch_sales_history(
         db=db,
         store_id=store_id,
         product_id=product_id,
-        target_date=target_date,
-        n_days=n_days,
+        start_date=start_date,
+        end_date=target_date,
+        limit=n_days + 10,
     )
 
 
@@ -41,4 +44,8 @@ def get_recent_history(
     limit: int = Query(default=30, ge=1, le=365),
     db: Session = Depends(get_db),
 ):
-    return fetch_recent_product_history(db=db, product_id=product_id, limit=limit)
+    return fetch_recent_product_history(
+        db=db,
+        product_id=product_id,
+        limit=limit,
+    )

@@ -39,6 +39,11 @@ class Product(Base):
     seuil_min = Column("seuilMin", Integer, nullable=True)
     analyse_concurrentielle_statut = Column("analyseConcurrentielleStatut",String(50),default="NOT_STARTED",nullable=True,)
     analyse_concurrentielle_date = Column("analyseConcurrentielleDate",DateTime,nullable=True,)
+
+    # Workflow pricing : le responsable stock crée le produit, le responsable pricing valide le prix.
+    statut_prix = Column("statutPrix", String(50), default="EN_ATTENTE_PRICING", nullable=True)
+    date_validation_prix = Column("dateValidationPrix", DateTime, nullable=True)
+    note_validation_prix = Column("noteValidationPrix", Text, nullable=True)
     statut = Column(String(50), nullable=True)
     date_debut_observation = Column("dateDebutObservation", Date, nullable=True)
     date_fin_observation = Column("dateFinObservation", Date, nullable=True)
@@ -133,10 +138,20 @@ class StockMovement(Base):
 class SalesHistory(Base):
     __tablename__ = "historique_ventes"
 
+    __table_args__ = (
+        UniqueConstraint(
+            "date",
+            "store_id",
+            "product_id",
+            name="uq_sales_history_date_store_product",
+        ),
+    )
+
     id = Column(Integer, primary_key=True)
     date = Column(Date, nullable=False, index=True)
     store_id = Column(String(100), nullable=False, index=True)
     product_id = Column(String(100), nullable=False, index=True)  # SKU
+
     category = Column(String(100), nullable=True)
     region = Column(String(100), nullable=True)
     sales = Column(Float, nullable=False)
@@ -149,7 +164,6 @@ class SalesHistory(Base):
     holiday_promotion = Column(Integer, nullable=True)
     seasonality = Column(String(50), nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
-
 
 class Competitor(Base):
     __tablename__ = "concurrents"
