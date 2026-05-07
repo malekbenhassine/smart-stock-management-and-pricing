@@ -5,9 +5,9 @@ from __future__ import annotations
 
 import re
 from collections import Counter
+#Ce fichier génère des mots-clés automatiquement à partir 
+# des titres de catégories
 
-
-# Stopwords multilingues étendus (FR + EN + AR translittéré)
 STOPWORDS = {
     # Français
     "de", "des", "du", "la", "le", "les", "et", "pour", "avec", "sur",

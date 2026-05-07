@@ -25,9 +25,6 @@ class ProductSearchRequest(BaseModel):
     categorie: Optional[str] = None
 
 
-# ---------------------------------------------------------------------
-# Routes existantes gardées
-# ---------------------------------------------------------------------
 @router.post("/run-now")
 def run_now(payload: RunNowRequest):
     scraper = ScrapingService()
@@ -65,9 +62,6 @@ def search_product_on_competitors(
         )
 
 
-# ---------------------------------------------------------------------
-# Nouveau : planification d'un temps pour produits sélectionnés
-# ---------------------------------------------------------------------
 @router.post("/product-schedules")
 def create_product_schedule(payload: ProductScheduleCreate):
     try:
@@ -119,10 +113,6 @@ def product_run_now(payload: ProductRunNowRequest):
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
 
-
-# ---------------------------------------------------------------------
-# Nouveau : fréquence scraping des sites/catalogues concurrents
-# ---------------------------------------------------------------------
 @router.post("/catalog-frequency")
 def configure_catalog_frequency(payload: CatalogFrequencyConfig):
     return dual_scheduler.configure_catalog_frequency(

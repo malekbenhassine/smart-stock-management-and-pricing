@@ -29,13 +29,12 @@ def _tz() -> ZoneInfo:
 def _now() -> datetime:
     """
     Heure métier du projet.
-    Docker peut rester en UTC, mais le scheduler travaille avec l'heure locale.
-    Par défaut : Africa/Tunis.
     """
     return datetime.now(_tz()).replace(tzinfo=None)
 
 
 def _iso(dt: datetime | None) -> str | None:
+    #date en text 
     return dt.isoformat(timespec="seconds") if dt else None
 
 def _parse_datetime(value: str) -> datetime:

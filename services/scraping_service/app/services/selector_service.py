@@ -118,15 +118,13 @@ GENERIC_CANDIDATES = {
     ],
 }
 
-# FIX : pattern de prix générique pour les sites tunisiens
-# Les prix tunisiens peuvent apparaître SANS symbole : "1299,000" ou "1 299.000"
-# ou AVEC : "1299 TND", "1299 DT"
+
 _PRICE_RE = re.compile(
     r"""
     (?:
-        \d[\d\s.,]*\s*(?:TND|DT)   # avec symbole monétaire tunisien
+        \d[\d\s.,]*\s*(?:TND|DT)   # avec symbole monétaire dinar
         |
-        \d{3,}[.,]\d{3}             # format tunisien sans symbole : 1299,000 ou 2799.000
+        \d{3,}[.,]\d{3}             # format  sans symbole : 1299,000 ou 2799.000
         |
         \d[\d\s]{2,}[.,]\d{1,3}    # nombre avec séparateur décimal
     )
@@ -136,6 +134,7 @@ _PRICE_RE = re.compile(
 
 
 def domain_template_for_host(host: str) -> dict:
+    """Retourne les sélecteurs prédéfinis pour un site connu comme Mytek, Tunisianet ou Spacenet."""
     host = (host or "").lower().replace("www.", "")
     return DOMAIN_TEMPLATES.get(host, {})
 

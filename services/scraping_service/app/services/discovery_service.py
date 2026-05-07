@@ -14,9 +14,6 @@ import time
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 
-# ---------------------------------------------------------------------------
-# Utilitaire : normalise les accents pour la comparaison de tokens
-# ---------------------------------------------------------------------------
 def _strip_accents(text: str) -> str:
     """Supprime les accents d'une chaîne (é→e, à→a, etc.)."""
     return "".join(
@@ -25,12 +22,8 @@ def _strip_accents(text: str) -> str:
     )
 
 
-# ---------------------------------------------------------------------------
-# Mots-clés d'inclusion – domaine informatique tunisien
-# FIX : ajout des formes plurielles et des variantes accentuées/non-accentuées
-# ---------------------------------------------------------------------------
 INCLUDE_HINTS = [
-    # Catégories produit — singulier ET pluriel
+    # Catégories produit 
     "ordinateur", "ordinateurs",
     "pc", "pcs",
     "portable", "portables",
@@ -71,10 +64,8 @@ INCLUDE_HINTS = [
     "adaptateur", "adaptateurs",
     "peripherique", "peripheriques",
     "stockage",
-    # Marques courantes dans les URLs tunisiennes
     "hp", "dell", "lenovo", "asus", "acer", "msi", "apple", "samsung",
     "intel", "amd", "nvidia", "epson", "canon", "brother", "logitech",
-    # Termes e-commerce génériques
     "produit", "produits",
     "product", "products",
     "article", "articles",
@@ -110,7 +101,6 @@ _PRICE_RE = re.compile(
     re.IGNORECASE,
 )
 
-# Sélecteurs de menus de navigation à explorer en priorité
 NAV_SELECTORS = [
     "nav a[href]",
     ".nav a[href]",
@@ -125,7 +115,6 @@ NAV_SELECTORS = [
     ".category-menu a[href]",
     ".categories a[href]",
     ".sidebar a[href]",
-    # FIX : sélecteurs supplémentaires courants (PrestaShop/WooCommerce/custom)
     "#top-menu a[href]",
     ".menu-item a[href]",
     ".nav-item a[href]",
@@ -133,11 +122,13 @@ NAV_SELECTORS = [
     "ul.nav a[href]",
     ".dropdown-menu a[href]",
     ".sub-menu a[href]",
-    "footer a[href]",  # certains sites listent toutes leurs catégories dans le footer
+    "footer a[href]", 
 ]
 
 
 def canonical_url(url: str) -> str:
+    """nettoie une URL canonique pour la comparaison (sans query, fragment, ni www).
+    """
     parsed = urlparse(url.strip())
     host = parsed.netloc.lower()
     if host.startswith("www."):
@@ -147,13 +138,16 @@ def canonical_url(url: str) -> str:
 
 
 def same_host(url1: str, url2: str) -> bool:
+    """vérifie si deux URLs appartiennent au même site (en ignorant www et les sous-domaines).
+    """
     h1 = urlparse(url1).netloc.lower().replace("www.", "")
     h2 = urlparse(url2).netloc.lower().replace("www.", "")
     return h1 == h2
 
 
 def score_catalog_candidate(title: str, url: str) -> float:
-    # FIX : normalisation des accents avant comparaison des tokens
+    """donne un score à une URL pour savoir si elle ressemble à un catalogue.
+    """
     raw_haystack = f"{title} {url}".lower()
     haystack = _strip_accents(raw_haystack)
     score = 0.0
@@ -171,7 +165,6 @@ def score_catalog_candidate(title: str, url: str) -> float:
     if _CATALOG_URL_RE.search(url):
         score += 2.0
 
-    # Bonus profondeur faible = catégorie principale (plus intéressante)
     depth = len([p for p in urlparse(url).path.split("/") if p])
     if depth == 1:
         score += 1.5
@@ -184,6 +177,7 @@ def score_catalog_candidate(title: str, url: str) -> float:
 
 
 def extract_same_domain_links(site_url: str, html: str) -> list[tuple[str, str]]:
+    """Extrait tous les liens internes du même domaine."""
     soup = BeautifulSoup(html, "lxml")
     links = []
     for a in soup.select("a[href]"):
@@ -269,7 +263,6 @@ def _build_candidates(site_url: str, html: str) -> list[dict]:
     1. Les liens de navigation (nav, menu, header, footer)
     2. Tous les liens du body
 
-    Stratégie : inclure large, laisser la vérification filtrer.
     """
     seen_urls: set[str] = set()
     candidates: list[dict] = []
@@ -322,7 +315,6 @@ def _build_candidates(site_url: str, html: str) -> list[dict]:
     candidates.sort(key=lambda x: (-x["score"], x["depth"], x["url"]))
 
     # Déduplication par dominance de path — seuil conservateur (4 niveaux)
-    # Ex : /cat/laptops/asus/gaming ne bloque PAS /cat/laptops/asus
     deduped: list[dict] = []
     retained_paths: list[str] = []
 
@@ -341,7 +333,15 @@ def _build_candidates(site_url: str, html: str) -> list[dict]:
     return deduped
 
 class DiscoveryService:
+# 1. Télécharger la page d’accueil
+# 2. Extraire les liens du menu et du site
+# 3. Filtrer les liens inutiles : login, panier, contact, blog, etc.
+# 4. Donner un score à chaque lien
+# 5. Tester les meilleurs liens
+# 6. Vérifier si les pages contiennent des produits
+# 7. Retourner les catalogues trouvés
     def __init__(self) -> None:
+        """Prépare une session HTTP avec User-Agent pour télécharger les pages."""
         self.session = requests.Session()
         self.session.headers.update({
             "User-Agent": (
@@ -363,7 +363,7 @@ class DiscoveryService:
         site_url = canonical_url(site_url)
         host = urlparse(site_url).netloc.lower().replace("www.", "")
 
-    # ── 1. Charger la homepage ───────────────────────────────────────────
+    #Charger la homepage 
         try:
             html = self.get_html(site_url)
         except Exception as exc:
@@ -379,7 +379,7 @@ class DiscoveryService:
         selectors = detect_selectors(host, html)
         candidates = _build_candidates(site_url, html)
 
-    # ── 2. Crawler 1 niveau supplémentaire (menus JS / pages intermédiaires) ──
+    #Crawler 1 niveau supplémentaire (menus JS / pages intermédiaires) ──
     # Certains sites cachent leurs catégories derrière des pages de section
         extra_candidates: list[dict] = []
         top_nav = [c for c in candidates if c["source"] == "nav_discovery" and c["depth"] == 1]
@@ -417,7 +417,7 @@ class DiscoveryService:
                 seen.add(c["url"])
                 merged.append(c)
 
-    # ── 3. Vérification avec budget temps ────────────────────────────────
+    # Vérification avec budget temps
         MAX_TO_CHECK    = 60   # candidats max à vérifier
         MAX_TOTAL_SECS  = 90   # budget total
         PER_PAGE_SECS   = 10   # timeout par page
@@ -462,7 +462,7 @@ class DiscoveryService:
             except Exception:
                 continue
 
-    # ── 4. Fallback si 0 catalogue vérifié ───────────────────────────────
+    #  Fallback si 0 catalogue vérifié ───────────────────────────────
         warnings = []
         final_catalogs = verified_catalogs
 

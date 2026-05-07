@@ -80,7 +80,6 @@ class ScrapeSummary(BaseModel):
     catalog_details: List[CatalogScrapeDetail] = Field(default_factory=list)
     errors: List[str] = Field(default_factory=list)
     
-# À ajouter dans scraping_service/app/schemas/scraping_schemas.py
 
 class ProductScheduleCreate(BaseModel):
     product_ids: List[int]

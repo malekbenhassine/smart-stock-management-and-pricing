@@ -2,7 +2,7 @@ import re
 from typing import Optional
 from bs4 import BeautifulSoup
 
-
+#Ce fichier concu pour nettoyer le texte et extraire les prix.
 def normalize_text(value: Optional[str]) -> Optional[str]:
     if value is None:
         return None
