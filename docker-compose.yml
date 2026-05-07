@@ -163,6 +163,31 @@ services:
       - "8080:8080"
     networks:
       - smart_network
+  api_gateway:
+    build:
+      context: ./api_gateway
+    container_name: api_gateway
+    restart: unless-stopped
+    ports:
+      - "8090:8080"
+    environment:
+      AUTH_SERVICE_URL: http://auth_service:8007
+      STOCK_SERVICE_URL: http://stock_service:2004
+      ML_SERVICE_URL: http://inference_service:8020
+      SCRAPING_SERVICE_URL: http://scraping_service:8060
+      CSV_IMPORT_SERVICE_URL: http://csv_import_service:8030
+      ALERTS_SERVICE_URL: http://alerts_service:8006
+      FRONTEND_URL: http://localhost:5173
+      DEFAULT_TIMEOUT_SECONDS: 120
+      LONG_TIMEOUT_SECONDS: 600
+    depends_on:
+      - auth_service
+      - stock_service
+      - inference_service
+      - scraping_service
+      - csv_import_service
+    networks:
+      - smart_network    
       
 volumes:
   postgres_csv_import_data:

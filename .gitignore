@@ -17,3 +17,8 @@ services/train_service/models/*.pkl
 node_modules/
 dist/
 build/*.zip
+*.zip 
+*.zip 
+*.zip 
+*.rar 
+*.7z 

@@ -541,4 +541,4 @@ def calculate_initial_price_recommendation_service(product_id: int, db: Session)
     product = db.query(Product).filter(Product.id == product_id).first()
     if not product:
         raise HTTPException(status_code=404, detail="Produit introuvable")
-    return calculate_price_recommendation(product=product, db=db, strategy="competitive")
+    return calculate_price_recommendation(product_id=product.id, db=db)

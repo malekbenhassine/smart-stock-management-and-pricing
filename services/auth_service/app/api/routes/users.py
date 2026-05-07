@@ -1,6 +1,6 @@
 from typing import List
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
@@ -16,6 +16,7 @@ router = APIRouter(prefix="/users", tags=["users"])
 @router.post("", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
 def create_user_by_admin(
     payload: UserCreateByAdmin,
+    request: Request,
     db: Session = Depends(get_db),
     _admin=Depends(require_admin),
 ):
@@ -24,6 +25,7 @@ def create_user_by_admin(
         full_name=payload.full_name,
         email=payload.email,
         role=payload.role,
+        request=request,
     )
 
 
@@ -66,5 +68,5 @@ def delete_user(user_id: int, db: Session = Depends(get_db), _admin=Depends(requ
     AuthService.admin_delete_user(db, user_id)
 
 @router.post("/{user_id}/resend-activation")
-def resend_activation(user_id: int, db: Session = Depends(get_db), _admin=Depends(require_admin)):
-    return AuthService.admin_resend_activation(db, user_id)    
+def resend_activation(user_id: int, request: Request, db: Session = Depends(get_db), _admin=Depends(require_admin)):
+    return AuthService.admin_resend_activation(db, user_id, request=request)    

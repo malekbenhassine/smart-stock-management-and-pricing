@@ -4,7 +4,7 @@ from fastapi import APIRouter, Body, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
-from app.models.tables import Product
+from app.models.tables import Product, ProductCompetitor
 from app.services.scraping_client import ScrapingServiceClient
 from app.services.competitor_product_service import (
     bulk_save_scraped_with_matching,
@@ -81,7 +81,7 @@ def get_pending_validation(db: Session = Depends(get_db)):
 @router.post("/{competitor_product_id}/validate")
 def validate_match(
     competitor_product_id: int,
-    accepted: bool = Body(..., embed=True),
+    accepted: bool = Body(True, embed=True),
     produit_id: Optional[int] = Body(None, embed=True),
     db: Session = Depends(get_db),
 ):
@@ -107,6 +107,122 @@ def unmatch_competitor_product(
     sauf si le score est 100 (correspondance exacte certaine).
     """
     return unmatch_competitor_product_service(competitor_product_id, db)
+
+
+
+
+@router.post("/{competitor_product_id}/ignore")
+def ignore_competitor_product(
+    competitor_product_id: int,
+    db: Session = Depends(get_db),
+):
+    """Ignore un produit concurrent : il ne sera pas utilisé dans la recommandation."""
+    pc = db.query(ProductCompetitor).filter(ProductCompetitor.id == competitor_product_id).first()
+
+    if not pc:
+        raise HTTPException(status_code=404, detail="Produit concurrent introuvable")
+
+    pc.statut_matching = "IGNORED"
+    pc.fiable = False
+
+    details = pc.details_matching or {}
+    details["status"] = "IGNORED"
+    details["ignored_manually"] = True
+    pc.details_matching = details
+
+    db.commit()
+    db.refresh(pc)
+
+    return {
+        "status": "success",
+        "message": "Produit concurrent ignoré",
+        "item": {
+            "id": pc.id,
+            "produit_id": pc.produit_id,
+            "concurrentId": pc.concurrent_id,
+            "urlProduit": pc.url_produit,
+            "skuConcurrent": pc.sku_concurrent,
+            "nomProduit": pc.nom_produit,
+            "prixConcurrent": pc.prix_concurrent,
+            "scoreMatching": pc.score_matching,
+            "statutMatching": pc.statut_matching,
+            "fiable": pc.fiable,
+        },
+    }
+
+
+@router.post("/{competitor_product_id}/manual-review")
+def put_competitor_product_in_manual_review(
+    competitor_product_id: int,
+    db: Session = Depends(get_db),
+):
+    """Remet un produit concurrent en revue manuelle."""
+    pc = db.query(ProductCompetitor).filter(ProductCompetitor.id == competitor_product_id).first()
+
+    if not pc:
+        raise HTTPException(status_code=404, detail="Produit concurrent introuvable")
+
+    pc.statut_matching = "MANUAL_REVIEW"
+    pc.fiable = False
+
+    details = pc.details_matching or {}
+    details["status"] = "MANUAL_REVIEW"
+    details["manual_review_requested"] = True
+    pc.details_matching = details
+
+    db.commit()
+    db.refresh(pc)
+
+    return {
+        "status": "success",
+        "message": "Produit remis en revue manuelle",
+        "item": {
+            "id": pc.id,
+            "produit_id": pc.produit_id,
+            "concurrentId": pc.concurrent_id,
+            "urlProduit": pc.url_produit,
+            "skuConcurrent": pc.sku_concurrent,
+            "nomProduit": pc.nom_produit,
+            "prixConcurrent": pc.prix_concurrent,
+            "scoreMatching": pc.score_matching,
+            "statutMatching": pc.statut_matching,
+            "fiable": pc.fiable,
+        },
+    }
+
+
+@router.post("/auto-fix-100")
+def auto_fix_100_matches(
+    product_id: int | None = Query(None),
+    db: Session = Depends(get_db),
+):
+    """Corrige les anciens produits avec score 100 mais statut non exploitable."""
+    query = db.query(ProductCompetitor).filter(ProductCompetitor.score_matching >= 100)
+
+    if product_id is not None:
+        query = query.filter(ProductCompetitor.produit_id == product_id)
+
+    rows = query.all()
+    fixed = 0
+
+    for pc in rows:
+        current_status = str(pc.statut_matching or "").upper()
+        if current_status in {"", "MANUAL_REVIEW", "IGNORED", "REJECTED", "DEMATCHED"}:
+            pc.statut_matching = "MATCHED"
+            pc.fiable = True
+            details = pc.details_matching or {}
+            details["status"] = "MATCHED"
+            details["auto_fixed_100"] = True
+            pc.details_matching = details
+            fixed += 1
+
+    db.commit()
+
+    return {
+        "status": "success",
+        "fixed": fixed,
+        "message": f"{fixed} produit(s) concurrent(s) corrigé(s).",
+    }
 
 
 @router.post("/rematch-product/{product_id}")

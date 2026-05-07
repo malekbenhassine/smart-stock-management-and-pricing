@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Request
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
@@ -19,18 +19,19 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 
 
 @router.post("/activate")
-def activate_account(payload: ActivateAccountRequest, db: Session = Depends(get_db)):
+def activate_account(payload: ActivateAccountRequest, request: Request, db: Session = Depends(get_db)):
     return AuthService.activate_account(
         db=db,
         token=payload.token,
         password=payload.password,
         confirm_password=payload.confirm_password,
+        request=request,
     )
 
 
 @router.post("/login", response_model=TokenResponse)
-def login(payload: LoginRequest, db: Session = Depends(get_db)):
-    return AuthService.login(db=db, email=payload.email, password=payload.password)
+def login(payload: LoginRequest, request: Request, db: Session = Depends(get_db)):
+    return AuthService.login(db=db, email=payload.email, password=payload.password, request=request)
 
 
 @router.get("/me", response_model=UserResponse)
@@ -58,6 +59,7 @@ def update_me(
 @router.post("/change-password")
 def change_password(
     payload: ChangePasswordRequest,
+    request: Request,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -67,19 +69,21 @@ def change_password(
         current_password=payload.current_password,
         new_password=payload.new_password,
         confirm_password=payload.confirm_password,
+        request=request,
     )
 
 
 @router.post("/forgot-password")
-def forgot_password(payload: ForgotPasswordRequest, db: Session = Depends(get_db)):
-    return AuthService.forgot_password(db=db, email=payload.email)
+def forgot_password(payload: ForgotPasswordRequest, request: Request, db: Session = Depends(get_db)):
+    return AuthService.forgot_password(db=db, email=payload.email, request=request)
 
 
 @router.post("/reset-password")
-def reset_password(payload: ResetPasswordRequest, db: Session = Depends(get_db)):
+def reset_password(payload: ResetPasswordRequest, request: Request, db: Session = Depends(get_db)):
     return AuthService.reset_password(
         db=db,
         token=payload.token,
         password=payload.password,
         confirm_password=payload.confirm_password,
+        request=request,
     )

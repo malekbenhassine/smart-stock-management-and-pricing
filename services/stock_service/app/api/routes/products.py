@@ -74,14 +74,19 @@ def _block_competitive_recommendation_if_validation_required(
 
     summary = _competitor_validation_summary(product.id, db)
 
-    if summary["manualReviewProducts"] > 0:
+    # Correction finale :
+    # On ne bloque PLUS la recommandation s'il existe déjà au moins un concurrent validé.
+    # Exemple réel : produit 345 => 2 MATCHED + 1 MANUAL_REVIEW.
+    # Dans ce cas, la recommandation doit utiliser les 2 MATCHED et ignorer le MANUAL_REVIEW.
+    if summary["manualReviewProducts"] > 0 and summary["matchedCompetitorProducts"] <= 0:
         return {
             "status": "validation_required",
             "productId": product.id,
             **summary,
             "message": (
-                "Des produits concurrents doivent être acceptés ou refusés avant "
-                "d'afficher la recommandation de prix basée sur la concurrence."
+                "Aucun concurrent validé n'est disponible. "
+                "Les produits concurrents en revue manuelle doivent être acceptés ou refusés "
+                "avant d'afficher une recommandation basée sur la concurrence."
             ),
         }
 
@@ -384,7 +389,7 @@ def get_initial_price_recommendation(product_id: int, db: Session = Depends(get_
     product = db.query(Product).filter(Product.id == product_id).first()
     if not product:
         raise HTTPException(status_code=404, detail="Produit introuvable")
-    return calculate_price_recommendation(product=product, db=db, strategy="competitive")
+    return calculate_price_recommendation(product_id=product.id, db=db)
 
 
 @router.get("/{product_id}/price-recommendation")
@@ -404,7 +409,7 @@ def get_price_recommendation(product_id: int, strategy: str = "competitive", db:
     if blocked:
         return blocked
 
-    return calculate_price_recommendation(product=product, db=db, strategy=strategy)
+    return calculate_price_recommendation(product_id=product.id, db=db)
 
 
 @router.post("/{product_id}/price-recommendation")
@@ -429,9 +434,4 @@ def post_price_recommendation(
     if blocked:
         return blocked
 
-    return calculate_price_recommendation(
-        product=product,
-        db=db,
-        min_margin=min_margin,
-        strategy=strategy,
-    )
+    return calculate_price_recommendation(product_id=product.id, db=db)
