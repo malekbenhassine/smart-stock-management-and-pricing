@@ -13,8 +13,8 @@ class Settings(BaseSettings):
 
     FRONTEND_URL: str = "http://localhost:5173"
 
-    DEFAULT_TIMEOUT_SECONDS: float = 120.0
-    LONG_TIMEOUT_SECONDS: float = 600.0
+    DEFAULT_TIMEOUT_SECONDS: float = 180.0
+    LONG_TIMEOUT_SECONDS: float = 900.0
 
 
 settings = Settings()

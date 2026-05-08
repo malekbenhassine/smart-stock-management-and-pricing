@@ -14,9 +14,16 @@ from app.services.scraping_client import ScrapingServiceClient
 
 
 def normalize_site_url(raw_url: str) -> tuple[str, str]:
-    parsed = urlparse(str(raw_url).strip())
+    value = str(raw_url).strip()
+    parsed = urlparse(value)
+
     scheme = parsed.scheme or "https"
-    host = (parsed.netloc or "").lower().strip()
+    host = (parsed.netloc or parsed.path).lower().strip()
+
+    # Si l'utilisateur écrit mytek.tn/path, urlparse met tout dans path.
+    # On garde seulement le domaine.
+    host = host.split("/")[0]
+
     if host.startswith("www."):
         host = host[4:]
 
@@ -67,18 +74,22 @@ def _serialize_competitor(obj: Competitor) -> dict:
 def _replace_catalogs(competitor: Competitor, discovered_catalogs: list[dict], db: Session) -> None:
     db.query(CompetitorCatalog).filter(
         CompetitorCatalog.competitor_id == competitor.id
-    ).delete()
+    ).delete(synchronize_session=False)
 
-    for item in discovered_catalogs:
-        url = normalize_catalog_url(item["url"])
+    for item in discovered_catalogs or []:
+        url_raw = item.get("url")
+        if not url_raw:
+            continue
+
+        url = normalize_catalog_url(url_raw)
         row = CompetitorCatalog(
             competitor_id=competitor.id,
-            title=item["title"],
+            title=item.get("title") or item.get("name") or "Catalogue détecté",
             url=url,
             url_key=url,
             parent_url=item.get("parent_url"),
-            depth=item.get("depth", 0),
-            score=float(item.get("score", 0)),
+            depth=int(item.get("depth", 0) or 0),
+            score=float(item.get("score", 0) or 0),
             source=item.get("source", "auto_discovery"),
             is_selected=bool(item.get("is_selected", True)),
             is_active=True,
@@ -87,6 +98,12 @@ def _replace_catalogs(competitor: Competitor, discovered_catalogs: list[dict], d
 
 
 def create_competitor_service(payload: CompetitorCreate, db: Session):
+    """
+    Création rapide du concurrent.
+
+    Important : on ne fait plus la discovery ici.
+    La discovery est longue, donc elle est lancée en arrière-plan depuis la route.
+    """
     normalized_site_url, site_host = normalize_site_url(str(payload.site_url))
 
     existing = db.query(Competitor).filter(
@@ -101,11 +118,36 @@ def create_competitor_service(payload: CompetitorCreate, db: Session):
         site_host_normalized=site_host,
         actif=payload.actif,
         frequence_scraping_heures=payload.frequence_scraping_heures,
-        discovery_status="pending",
+        discovery_status="running",
+        last_discovery_at=None,
+        last_discovery_error=None,
         auto_keywords_json=[],
         selectors_override_json={},
     )
+
     db.add(obj)
+    db.commit()
+    db.refresh(obj)
+
+    return _serialize_competitor(obj)
+
+
+def run_competitor_discovery_service(competitor_id: int, db: Session):
+    """
+    Discovery longue lancée en arrière-plan.
+    Elle remplit les catalogues, keywords et met à jour discovery_status.
+    """
+    obj = db.query(Competitor).filter(Competitor.id == competitor_id).first()
+
+    if not obj:
+        return {
+            "status": "error",
+            "competitor_id": competitor_id,
+            "error": "Concurrent introuvable",
+        }
+
+    obj.discovery_status = "running"
+    obj.last_discovery_error = None
     db.commit()
     db.refresh(obj)
 
@@ -117,23 +159,50 @@ def create_competitor_service(payload: CompetitorCreate, db: Session):
             site_url=obj.site_url,
         )
 
-        _replace_catalogs(obj, discovery.get("catalogs", []), db)
-        obj.auto_keywords_json = discovery.get("keywords", [])
-        obj.discovery_status = "ready"
+        catalogs = discovery.get("catalogs", []) or []
+        keywords = discovery.get("keywords", []) or []
+        status = str(discovery.get("status") or "").lower()
+        error = discovery.get("error")
+
+        _replace_catalogs(obj, catalogs, db)
+
+        obj.auto_keywords_json = keywords
         obj.last_discovery_at = datetime.utcnow()
-        obj.last_discovery_error = None
+
+        if status in ("timeout", "error"):
+            obj.discovery_status = "partial"
+            obj.last_discovery_error = error or (
+                "La découverte du site n'a pas pu se terminer correctement."
+            )
+        elif catalogs:
+            obj.discovery_status = "ready"
+            obj.last_discovery_error = None
+        else:
+            obj.discovery_status = "partial"
+            obj.last_discovery_error = "Aucun catalogue détecté automatiquement."
 
         db.commit()
         db.refresh(obj)
 
+        return {
+            "status": obj.discovery_status,
+            "competitor_id": obj.id,
+            "catalogs_count": len(catalogs),
+            "error": obj.last_discovery_error,
+        }
+
     except Exception as exc:
-        obj.discovery_status = "partial"
+        obj.discovery_status = "failed"
         obj.last_discovery_at = datetime.utcnow()
         obj.last_discovery_error = str(exc)
         db.commit()
         db.refresh(obj)
 
-    return _serialize_competitor(obj)
+        return {
+            "status": "failed",
+            "competitor_id": obj.id,
+            "error": str(exc),
+        }
 
 
 def list_competitors_service(db: Session):
@@ -168,21 +237,33 @@ def update_competitor_service(competitor_id: int, payload: CompetitorUpdate, db:
         normalized_site_url, site_host = normalize_site_url(str(payload.site_url))
         duplicate = db.query(Competitor).filter(
             Competitor.site_host_normalized == site_host,
-            Competitor.id != obj.id
+            Competitor.id != obj.id,
         ).first()
         if duplicate:
             raise ValueError("Un autre concurrent existe déjà pour ce site")
 
+        if obj.site_host_normalized != site_host:
+            site_changed = True
+
         obj.site_url = normalized_site_url
         obj.site_host_normalized = site_host
-        site_changed = True
 
     if site_changed:
-        obj.discovery_status = "pending"
+        obj.discovery_status = "running"
+        obj.last_discovery_error = None
+        obj.last_discovery_at = None
+        obj.auto_keywords_json = []
+
+        db.query(CompetitorCatalog).filter(
+            CompetitorCatalog.competitor_id == obj.id
+        ).delete(synchronize_session=False)
 
     db.commit()
     db.refresh(obj)
-    return _serialize_competitor(obj)
+
+    result = _serialize_competitor(obj)
+    result["discovery_required"] = site_changed
+    return result
 
 
 def update_advanced_config_service(
@@ -205,7 +286,7 @@ def update_advanced_config_service(
 def due_competitors_service(db: Session):
     rows = db.query(Competitor).filter(
         Competitor.actif.is_(True),
-        Competitor.discovery_status.in_(["ready", "partial"])
+        Competitor.discovery_status.in_(["ready", "partial"]),
     ).all()
 
     now = datetime.utcnow()

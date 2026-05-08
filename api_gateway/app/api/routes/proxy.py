@@ -16,7 +16,7 @@ SERVICE_MAP: Dict[str, str] = {
     "alerts-service": settings.ALERTS_SERVICE_URL,
 }
 
-LONG_TIMEOUT_SERVICES = {"scraping-service", "csv-service", "ml-service"}
+LONG_TIMEOUT_SERVICES = {"scraping-service", "csv-service", "ml-service","stock-service"}
 
 HOP_BY_HOP_HEADERS = {
     "connection",

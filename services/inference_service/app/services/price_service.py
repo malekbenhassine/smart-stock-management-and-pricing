@@ -304,10 +304,10 @@ def recommend_price_service(req: BaseRequest, db: Session) -> PricingResponse:
         reasoning=reasoning,
     )
 
-
 def build_price_recommendation_response(product: dict, result: PricingResponse) -> dict:
     current_price = float(result.current_price)
     recommended_price_raw = float(result.recommended_price)
+
     predicted_current = float(result.predicted_demand_at_current_price or 0.0)
     predicted_recommended = float(result.predicted_demand_at_recommended_price or 0.0)
 
@@ -315,7 +315,15 @@ def build_price_recommendation_response(product: dict, result: PricingResponse) 
     raw_min_margin = product.get("min_margin", product.get("margeReservee", 0.0))
 
     cost_price = float(raw_cost_price or 0.0)
-    min_margin = float(raw_min_margin or 0.0) / 100.0
+
+    try:
+        min_margin = float(raw_min_margin or 0.0)
+    except Exception:
+        min_margin = 0.0
+
+    # Si marge stockée en 20 au lieu de 0.20
+    if min_margin > 1:
+        min_margin = min_margin / 100.0
 
     peak_season = _resolve_peak_season(product)
     season = _get_current_season(result.date)
@@ -326,11 +334,16 @@ def build_price_recommendation_response(product: dict, result: PricingResponse) 
     else:
         min_allowed_price = round(current_price * 0.8, 2)
 
-    final_recommended_price = max(round(recommended_price_raw, 2), min_allowed_price)
+    final_recommended_price = max(
+        round(recommended_price_raw, 2),
+        min_allowed_price,
+    )
 
     direction = (
-        "UP" if final_recommended_price > current_price
-        else "DOWN" if final_recommended_price < current_price
+        "UP"
+        if final_recommended_price > current_price
+        else "DOWN"
+        if final_recommended_price < current_price
         else "STABLE"
     )
 
@@ -341,7 +354,8 @@ def build_price_recommendation_response(product: dict, result: PricingResponse) 
     recommended_margin_week = recommended_margin_per_unit * predicted_recommended
 
     estimated_margin_impact_week = round(
-        recommended_margin_week - current_margin_week, 2
+        recommended_margin_week - current_margin_week,
+        2,
     )
 
     explanation = build_price_explanation(
@@ -354,24 +368,82 @@ def build_price_recommendation_response(product: dict, result: PricingResponse) 
         is_peak_season=is_peak_season,
     )
 
+    # Important pour le frontend :
+    # On calcule l'historique réel du produit.
+    history_rows = get_recent_history_from_stock_service(
+        product_id=result.product_id,
+        limit=30,
+    )
+    history_count = len(history_rows)
+
+    has_sales_history = history_count > 0
+    has_enough_history = history_count >= 14
+    cold_start = not has_sales_history
+
+    price_change_pct = (
+        round(((final_recommended_price - current_price) / current_price) * 100, 2)
+        if current_price > 0
+        else 0.0
+    )
+
     return {
         "product_id": result.product_id,
+
+        # Prix
+        "current_price": current_price,
+        "prixActuel": current_price,
         "recommended_price": final_recommended_price,
-        "price_change_pct": round(((final_recommended_price - current_price) / current_price) * 100, 2)
-        if current_price > 0 else 0.0,
-        "interval": {
-            "low": min_allowed_price,
-            "high": round(current_price * 1.2, 2),
-        },
+        "prixRecommande": final_recommended_price,
+        "price_change_pct": price_change_pct,
+        "variationPercent": price_change_pct,
         "direction": direction,
+
+        # Champs demandés par le front
+        "predicted_demand_at_current_price": round(predicted_current, 2),
+        "predicted_demand_at_recommended_price": round(predicted_recommended, 2),
+        "demandeActuelle": round(predicted_current, 2),
+        "demandeRecommandee": round(predicted_recommended, 2),
+
+        # Ancien format conservé
         "demand_weekly": {
+            "current": round(predicted_current, 2),
+            "recommended": round(predicted_recommended, 2),
             "p10": round(predicted_recommended * 0.85, 2),
             "p50": round(predicted_recommended, 2),
             "p90": round(predicted_recommended * 1.15, 2),
         },
+
+        # Marge
         "estimated_margin_impact_week": estimated_margin_impact_week,
+        "impactMargeEstime": estimated_margin_impact_week,
+
+        # Intervalle
+        "interval": {
+            "low": min_allowed_price,
+            "high": round(current_price * 1.2, 2),
+        },
+
+        # Historique / cold start
+        "history_count": history_count,
+        "historyCount": history_count,
+        "has_sales_history": has_sales_history,
+        "hasSalesHistory": has_sales_history,
+        "has_enough_history": has_enough_history,
+        "hasEnoughHistory": has_enough_history,
+        "cold_start": cold_start,
+        "coldStart": cold_start,
+
+        # Saisonnalité
         "season": season,
         "peak_season": peak_season,
         "is_peak_season": is_peak_season,
+
+        # Explication
         "explanation": explanation,
+        "reasoning": result.reasoning,
+        "message": (
+            "Aucune vente historique trouvée pour ce produit : la carte IA ne doit pas être affichée."
+            if cold_start
+            else result.reasoning
+        ),
     }

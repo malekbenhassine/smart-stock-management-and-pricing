@@ -9,7 +9,6 @@ from app.schemas.scraping_schemas import (
     ProductRunNowRequest,
     CatalogFrequencyConfig,
 )
-from app.services.scraping_service import ScrapingService
 from app.services.scheduler_service import dual_scheduler
 
 
@@ -27,16 +26,20 @@ class ProductSearchRequest(BaseModel):
 
 @router.post("/run-now")
 def run_now(payload: RunNowRequest):
-    scraper = ScrapingService()
+    """
+    Lance le scraping catalogue en arrière-plan.
 
-    try:
-        return scraper.scrape_due_or_all(competitor_id=payload.competitor_id)
-
-    except ValueError as exc:
-        raise HTTPException(status_code=404, detail=str(exc))
-
-    except Exception as exc:
-        raise HTTPException(status_code=500, detail=f"Erreur scraping: {str(exc)}")
+    Important :
+    Cette route ne doit jamais attendre la fin du scraping,
+    sinon le frontend/API gateway reçoit un 504.
+    """
+    return {
+        "status": "started",
+        "message": "Scraping catalogue lancé en arrière-plan.",
+        "job": dual_scheduler.run_catalog_now(
+            competitor_id=payload.competitor_id,
+        ),
+    }
 
 
 @router.post("/search-product")
@@ -45,21 +48,25 @@ def search_product_on_competitors(
     debug: bool = False,
     fast: bool = True,
 ):
-    scraper = ScrapingService()
-
+    """
+    Lance la recherche ciblée produit en arrière-plan.
+    """
     try:
-        result = scraper.search_product_on_all_competitors(
-            payload.model_dump(),
-            debug=debug,
+        job = dual_scheduler.run_product_job_now(
+            product_ids=[payload.product_id],
             fast=fast,
+            debug=debug,
         )
-        return result
 
-    except Exception as exc:
-        raise HTTPException(
-            status_code=500,
-            detail=f"Erreur recherche ciblée produit: {str(exc)}",
-        )
+        return {
+            "status": "started",
+            "message": "Recherche produit lancée en arrière-plan.",
+            "job_id": job.get("id"),
+            "job": job,
+        }
+
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
 
 
 @router.post("/product-schedules")
@@ -113,6 +120,7 @@ def product_run_now(payload: ProductRunNowRequest):
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
 
+
 @router.post("/catalog-frequency")
 def configure_catalog_frequency(payload: CatalogFrequencyConfig):
     return dual_scheduler.configure_catalog_frequency(
@@ -129,7 +137,11 @@ def get_catalog_frequency():
 
 @router.post("/catalog-run-now")
 def catalog_run_now():
-    return dual_scheduler.run_catalog_now()
+    return {
+        "status": "started",
+        "message": "Scraping catalogue lancé en arrière-plan.",
+        "job": dual_scheduler.run_catalog_now(),
+    }
 
 
 @router.get("/scheduler-status")

@@ -7,8 +7,8 @@ import uuid
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
-import os
 from zoneinfo import ZoneInfo
+
 from app.services.scraping_service import ScrapingService
 from app.services.stock_client import StockServiceClient
 
@@ -19,6 +19,8 @@ CHECK_EVERY_SECONDS = 5
 _scheduler_started = False
 
 APP_TIMEZONE = "Africa/Tunis"
+
+
 def _tz() -> ZoneInfo:
     try:
         return ZoneInfo(APP_TIMEZONE)
@@ -34,8 +36,8 @@ def _now() -> datetime:
 
 
 def _iso(dt: datetime | None) -> str | None:
-    #date en text 
     return dt.isoformat(timespec="seconds") if dt else None
+
 
 def _parse_datetime(value: str) -> datetime:
     """
@@ -45,7 +47,7 @@ def _parse_datetime(value: str) -> datetime:
     - 2026-05-05 11:35:00
 
     Si le front envoie une date sans timezone, on la considère
-    comme une heure locale du projet : Africa/Tunis par défaut.
+    comme une heure locale du projet : Africa/Tunis.
     """
     if not value:
         raise ValueError("run_at est obligatoire.")
@@ -63,6 +65,7 @@ def _parse_datetime(value: str) -> datetime:
         parsed = parsed.astimezone(_tz()).replace(tzinfo=None)
 
     return parsed
+
 
 def _normalize_ids(values: list[int] | None) -> list[int]:
     if not values:
@@ -83,20 +86,21 @@ def _normalize_ids(values: list[int] | None) -> list[int]:
 
 class DualScrapingScheduler:
     """
-    Méthode simple :
+    Scheduler interne du scraping_service.
 
-    1) Jobs produits sélectionnés :
-       - l'utilisateur choisit product_ids + run_at
-       - le worker lance à l'heure prévue
-       - recherche ciblée produit par produit chez tous les concurrents
+    Il gère deux types de jobs :
 
-    2) Fréquence catalogues/sites :
-       - ex: toutes les 6h
-       - lance scrape_due_or_all() ou scrape_due_or_all(competitor_id)
-       - utile pour rafraîchir les catalogues concurrents
+    1. Jobs produits sélectionnés :
+       - l'utilisateur choisit des product_ids
+       - le worker lance la recherche ciblée à l'heure prévue
+       - chaque produit est recherché chez les concurrents
 
-    Tout est stocké en JSON pour éviter une nouvelle table.
-    Pour un PFE c'est la solution la plus simple.
+    2. Jobs catalogues :
+       - scraping manuel ou périodique des catalogues concurrents
+       - lancé dans un thread séparé
+       - évite les 504 côté frontend/API gateway
+
+    L'état est sauvegardé dans un fichier JSON.
     """
 
     def __init__(self):
@@ -137,6 +141,23 @@ class DualScrapingScheduler:
                 self.state["catalog_frequency"].update(
                     data.get("catalog_frequency", {}) or {}
                 )
+
+                current_run = self.state["catalog_frequency"].get("current_run")
+                if current_run and current_run.get("status") == "RUNNING":
+                    current_run["status"] = "FAILED"
+                    current_run["finished_at"] = _iso(_now())
+                    current_run["error"] = (
+                        "Le service a redémarré pendant l'exécution du scraping."
+                    )
+
+                    self.state["catalog_frequency"]["last_status"] = "FAILED"
+                    self.state["catalog_frequency"]["last_error"] = current_run[
+                        "error"
+                    ]
+                    self.state["catalog_frequency"]["last_finished_at"] = _iso(
+                        _now()
+                    )
+
         except Exception as exc:
             print(f"[dual-scheduler] Impossible de charger l'état: {exc}")
 
@@ -205,7 +226,8 @@ class DualScrapingScheduler:
 
     def get_product_job(self, job_id: str) -> dict | None:
         with self.lock:
-            return self.state["product_jobs"].get(job_id)
+            job = self.state["product_jobs"].get(job_id)
+            return dict(job) if job else None
 
     def cancel_product_job(self, job_id: str) -> dict:
         with self.lock:
@@ -221,7 +243,7 @@ class DualScrapingScheduler:
             job["finished_at"] = _iso(_now())
             self._save()
 
-            return job
+            return dict(job)
 
     def run_product_job_now(
         self,
@@ -317,7 +339,9 @@ class DualScrapingScheduler:
                     )
 
                     if result.get("status") == "error":
-                        raise Exception(result.get("error", "Erreur scraping inconnue"))
+                        raise Exception(
+                            result.get("error", "Erreur scraping inconnue")
+                        )
 
                     summary = result.get("summary", {}) or {}
 
@@ -377,7 +401,7 @@ class DualScrapingScheduler:
                 self.running_product_job_ids.discard(job_id)
 
     # ------------------------------------------------------------------
-    # Catalog frequency
+    # Catalog frequency / catalog scraping jobs
     # ------------------------------------------------------------------
     def configure_catalog_frequency(
         self,
@@ -402,11 +426,26 @@ class DualScrapingScheduler:
         with self.lock:
             return dict(self.state["catalog_frequency"])
 
-    def run_catalog_now(self) -> dict:
-        self._launch_catalog_thread(trigger="manual")
+    def run_catalog_now(self, competitor_id: int | None = None) -> dict:
+        """
+        Lance le scraping catalogue en arrière-plan.
+
+        Important :
+        Cette fonction ne doit jamais appeler directement scrape_due_or_all().
+        Elle crée seulement un thread puis retourne l'état courant.
+        """
+        self._launch_catalog_thread(
+            trigger="manual",
+            competitor_id_override=competitor_id,
+        )
+
         return self.get_catalog_frequency()
 
-    def _launch_catalog_thread(self, trigger: str = "scheduled"):
+    def _launch_catalog_thread(
+        self,
+        trigger: str = "scheduled",
+        competitor_id_override: int | None = None,
+    ):
         with self.lock:
             if self.catalog_running:
                 return
@@ -414,6 +453,13 @@ class DualScrapingScheduler:
             self.catalog_running = True
 
             config = self.state["catalog_frequency"]
+
+            selected_competitor_id = (
+                competitor_id_override
+                if competitor_id_override is not None
+                else config.get("competitor_id")
+            )
+
             config["last_status"] = "RUNNING"
             config["last_error"] = None
             config["last_run_at"] = _iso(_now())
@@ -422,30 +468,43 @@ class DualScrapingScheduler:
                 "status": "RUNNING",
                 "started_at": _iso(_now()),
                 "finished_at": None,
-                "competitor_id": config.get("competitor_id"),
+                "competitor_id": selected_competitor_id,
             }
+
             self._save()
 
         thread = threading.Thread(
             target=self._run_catalog_scraping,
-            args=(trigger,),
+            args=(trigger, competitor_id_override),
             daemon=True,
         )
+
         thread.start()
 
-    def _run_catalog_scraping(self, trigger: str = "scheduled"):
+    def _run_catalog_scraping(
+        self,
+        trigger: str = "scheduled",
+        competitor_id_override: int | None = None,
+    ):
         scraper = ScrapingService()
 
         try:
             with self.lock:
                 config = self.state["catalog_frequency"]
-                competitor_id = config.get("competitor_id")
+
+                competitor_id = (
+                    competitor_id_override
+                    if competitor_id_override is not None
+                    else config.get("competitor_id")
+                )
 
             result = scraper.scrape_due_or_all(competitor_id=competitor_id)
 
             with self.lock:
                 config = self.state["catalog_frequency"]
+
                 config["last_status"] = "DONE"
+                config["last_error"] = None
                 config["last_finished_at"] = _iso(_now())
                 config["current_run"] = {
                     **(config.get("current_run") or {}),
@@ -453,6 +512,7 @@ class DualScrapingScheduler:
                     "finished_at": _iso(_now()),
                     "result": result,
                 }
+
                 config["runs_history"] = [
                     config["current_run"],
                     *(config.get("runs_history") or []),
@@ -460,7 +520,10 @@ class DualScrapingScheduler:
 
                 if config.get("enabled"):
                     config["next_run_at"] = _iso(
-                        _now() + timedelta(minutes=int(config.get("interval_minutes") or 360))
+                        _now()
+                        + timedelta(
+                            minutes=int(config.get("interval_minutes") or 360)
+                        )
                     )
 
                 self._save()
@@ -468,6 +531,7 @@ class DualScrapingScheduler:
         except Exception as exc:
             with self.lock:
                 config = self.state["catalog_frequency"]
+
                 config["last_status"] = "FAILED"
                 config["last_error"] = str(exc)
                 config["last_finished_at"] = _iso(_now())
@@ -478,9 +542,17 @@ class DualScrapingScheduler:
                     "error": str(exc),
                 }
 
+                config["runs_history"] = [
+                    config["current_run"],
+                    *(config.get("runs_history") or []),
+                ][:20]
+
                 if config.get("enabled"):
                     config["next_run_at"] = _iso(
-                        _now() + timedelta(minutes=int(config.get("interval_minutes") or 360))
+                        _now()
+                        + timedelta(
+                            minutes=int(config.get("interval_minutes") or 360)
+                        )
                     )
 
                 self._save()
