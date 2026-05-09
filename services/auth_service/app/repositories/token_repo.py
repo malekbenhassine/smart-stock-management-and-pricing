@@ -1,17 +1,34 @@
 from sqlalchemy.orm import Session
 
-from app.models.activation_token import ActivationToken
+from app.models.token import Token, TypeJeton
 
 
 class TokenRepository:
     @staticmethod
-    def create(db: Session, **kwargs):
-        token = ActivationToken(**kwargs)
-        db.add(token)
+    def create(
+        db: Session,
+        utilisateur_id: int,
+        valeur: str,
+        type_jeton: TypeJeton,
+        expire_le,
+        utilise: bool = False,
+    ) -> Token:
+        jeton = Token(
+            utilisateur_id=utilisateur_id,
+            valeur=valeur,
+            type_jeton=type_jeton,
+            expire_le=expire_le,
+            utilise=utilise,
+        )
+        db.add(jeton)
         db.commit()
-        db.refresh(token)
-        return token
+        db.refresh(jeton)
+        return jeton
 
     @staticmethod
-    def get_by_token(db: Session, token: str):
-        return db.query(ActivationToken).filter(ActivationToken.token == token).first()
+    def get_by_valeur_et_type(db: Session, valeur: str, type_jeton: TypeJeton):
+        return (
+            db.query(Token)
+            .filter(Token.valeur == valeur, Token.type_jeton == type_jeton)
+            .first()
+        )

@@ -9,8 +9,7 @@ from app.core.config import settings
 from app.core.database import Base, engine
 
 from app.models.user import User
-from app.models.activation_token import ActivationToken
-from app.models.password_reset_token import PasswordResetToken
+from app.models.token import Token
 from app.models.journal_authentification import JournalAuthentification
 
 Base.metadata.create_all(bind=engine)

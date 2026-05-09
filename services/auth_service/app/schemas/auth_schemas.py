@@ -5,25 +5,25 @@ from app.schemas.user_schemas import UserResponse
 
 class LoginRequest(BaseModel):
     email: EmailStr
-    password: str = Field(min_length=8)
+    mot_de_passe: str = Field(min_length=8)
 
 
 class TokenResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"
-    user: UserResponse
+    utilisateur: UserResponse
 
 
 class ActivateAccountRequest(BaseModel):
-    token: str
-    password: str = Field(min_length=8)
-    confirm_password: str = Field(min_length=8)
+    jeton: str
+    mot_de_passe: str = Field(min_length=8)
+    confirmation_mot_de_passe: str = Field(min_length=8)
 
 
 class ChangePasswordRequest(BaseModel):
-    current_password: str = Field(min_length=8)
-    new_password: str = Field(min_length=8)
-    confirm_password: str = Field(min_length=8)
+    mot_de_passe_actuel: str = Field(min_length=8)
+    nouveau_mot_de_passe: str = Field(min_length=8)
+    confirmation_mot_de_passe: str = Field(min_length=8)
 
 
 class ForgotPasswordRequest(BaseModel):
@@ -31,6 +31,6 @@ class ForgotPasswordRequest(BaseModel):
 
 
 class ResetPasswordRequest(BaseModel):
-    token: str
-    password: str = Field(min_length=8)
-    confirm_password: str = Field(min_length=8)
+    jeton: str
+    mot_de_passe: str = Field(min_length=8)
+    confirmation_mot_de_passe: str = Field(min_length=8)

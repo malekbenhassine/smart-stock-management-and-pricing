@@ -22,16 +22,16 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 def activate_account(payload: ActivateAccountRequest, request: Request, db: Session = Depends(get_db)):
     return AuthService.activate_account(
         db=db,
-        token=payload.token,
-        password=payload.password,
-        confirm_password=payload.confirm_password,
+        jeton=payload.jeton,
+        mot_de_passe=payload.mot_de_passe,
+        confirmation_mot_de_passe=payload.confirmation_mot_de_passe,
         request=request,
     )
 
 
 @router.post("/login", response_model=TokenResponse)
 def login(payload: LoginRequest, request: Request, db: Session = Depends(get_db)):
-    return AuthService.login(db=db, email=payload.email, password=payload.password, request=request)
+    return AuthService.login(db=db, email=payload.email, mot_de_passe=payload.mot_de_passe, request=request)
 
 
 @router.get("/me", response_model=UserResponse)
@@ -48,11 +48,11 @@ def update_me(
     return AuthService.update_me(
         db=db,
         current_user=current_user,
-        first_name=payload.first_name,
-        last_name=payload.last_name,
-        phone=payload.phone,
-        address=payload.address,
-        birth_date=payload.birth_date,
+        prenom=payload.prenom,
+        nom=payload.nom,
+        telephone=payload.telephone,
+        adresse=payload.adresse,
+        date_naissance=payload.date_naissance,
     )
 
 
@@ -66,9 +66,9 @@ def change_password(
     return AuthService.change_password(
         db=db,
         current_user=current_user,
-        current_password=payload.current_password,
-        new_password=payload.new_password,
-        confirm_password=payload.confirm_password,
+        mot_de_passe_actuel=payload.mot_de_passe_actuel,
+        nouveau_mot_de_passe=payload.nouveau_mot_de_passe,
+        confirmation_mot_de_passe=payload.confirmation_mot_de_passe,
         request=request,
     )
 
@@ -82,8 +82,8 @@ def forgot_password(payload: ForgotPasswordRequest, request: Request, db: Sessio
 def reset_password(payload: ResetPasswordRequest, request: Request, db: Session = Depends(get_db)):
     return AuthService.reset_password(
         db=db,
-        token=payload.token,
-        password=payload.password,
-        confirm_password=payload.confirm_password,
+        jeton=payload.jeton,
+        mot_de_passe=payload.mot_de_passe,
+        confirmation_mot_de_passe=payload.confirmation_mot_de_passe,
         request=request,
     )

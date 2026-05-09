@@ -14,7 +14,7 @@ class JournalAuthentification(Base):
     type_evenement = Column(String(80), nullable=False, index=True)
     statut = Column(String(30), nullable=False, index=True)
 
-    utilisateur_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
+    utilisateur_id = Column(Integer, ForeignKey("utilisateur.id", ondelete="SET NULL"), nullable=True, index=True)
     adresse_email = Column(String(255), nullable=True, index=True)
 
     adresse_ip = Column(String(80), nullable=True)
