@@ -49,6 +49,47 @@ class Product(Base):
     date_fin_observation = Column("dateFinObservation", Date, nullable=True)
 
 
+class DemandeModificationPrix(Base):
+    __tablename__ = "demandes_modification_prix"
+
+    id = Column(Integer, primary_key=True, index=True)
+    produit_id = Column(Integer, ForeignKey("produits.id", ondelete="CASCADE"), nullable=False, index=True)
+
+    ancien_prix = Column("ancienPrix", Float, nullable=False)
+    nouveau_prix = Column("nouveauPrix", Float, nullable=False)
+    variation_pourcentage = Column("variationPourcentage", Float, nullable=False)
+
+    justification = Column(Text, nullable=True)
+    source_recommandation = Column("sourceRecommandation", String(100), nullable=True)
+    strategie = Column(String(100), nullable=True)
+
+    statut = Column(String(50), default="EN_ATTENTE_MANAGER", nullable=False, index=True)
+
+    demande_par = Column("demandePar", String(100), default="RESPONSABLE_PRICING", nullable=True)
+    date_demande = Column("dateDemande", DateTime, default=datetime.utcnow, nullable=False)
+
+    valide_par = Column("validePar", String(100), nullable=True)
+    date_validation = Column("dateValidation", DateTime, nullable=True)
+    commentaire_manager = Column("commentaireManager", Text, nullable=True)
+
+    produit = relationship("Product")
+
+
+class JournalActivite(Base):
+    __tablename__ = "journal_activites"
+
+    id = Column(Integer, primary_key=True, index=True)
+    role_utilisateur = Column("roleUtilisateur", String(50), nullable=True, index=True)
+    nom_utilisateur = Column("nomUtilisateur", String(120), nullable=True)
+    type_action = Column("typeAction", String(100), nullable=False, index=True)
+    type_entite = Column("typeEntite", String(100), nullable=True)
+    entite_id = Column("entiteId", Integer, nullable=True, index=True)
+    produit_id = Column("produitId", Integer, nullable=True, index=True)
+    description = Column(Text, nullable=False)
+    donnees = Column(JSON, nullable=True)
+    date_action = Column("dateAction", DateTime, default=datetime.utcnow, nullable=False, index=True)
+
+
 class Supplier(Base):
     __tablename__ = "fournisseurs"
 

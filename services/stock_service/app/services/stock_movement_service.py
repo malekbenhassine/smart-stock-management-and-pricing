@@ -6,7 +6,7 @@ from fastapi import HTTPException
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
-from app.models.tables import Product, StockMovement
+from app.models.tables import Product, Sale, SaleLine, StockMovement
 from app.schemas.schemas import StockMovementCreate, StockMovementUpdate
 
 
@@ -31,11 +31,50 @@ POSITIVE_TYPES = {
     "ANNULATION_RESERVATION",
 }
 
-DEMAND_SIGNAL_TYPES = {
-    "SORTIE",
-    "AJUSTEMENT_NEGATIF",
-    "RESERVATION",
+# Seules les sorties réellement liées à une vente client doivent alimenter la demande.
+# Les pertes, casses, corrections ou réservations ne sont pas des ventes.
+SALE_JUSTIFICATION_CODES = {
+    "VENTE_CLIENT",
+    "VENTE_CLIENT_DIRECTE",
+    "COMMANDE_CLIENT_LIVREE",
 }
+
+SALE_JUSTIFICATION_KEYWORDS = {
+    "VENTE",
+    "VENTE CLIENT",
+    "CLIENT",
+    "COMMANDE CLIENT",
+}
+
+DEMAND_SIGNAL_TYPES = {"SORTIE"}
+
+
+
+
+
+def _normalize_text(value: str | None) -> str:
+    return str(value or "").strip().upper().replace("É", "E").replace("È", "E").replace("Ê", "E")
+
+
+def is_customer_sale_movement(movement_type: str | None, justification: str | None) -> bool:
+    """
+    Retourne True seulement si le mouvement doit être considéré comme une vente client.
+
+    Règle métier :
+    - type = SORTIE
+    - justification = VENTE_CLIENT / VENTE_CLIENT_DIRECTE / COMMANDE_CLIENT_LIVREE
+      ou ancien texte libre contenant une notion claire de vente client.
+    """
+    movement_type_normalized = _normalize_text(movement_type)
+    justification_normalized = _normalize_text(justification)
+
+    if movement_type_normalized != "SORTIE":
+        return False
+
+    if justification_normalized in SALE_JUSTIFICATION_CODES:
+        return True
+
+    return any(keyword in justification_normalized for keyword in SALE_JUSTIFICATION_KEYWORDS)
 
 
 def _safe_int(value, default: int = 0) -> int:
@@ -61,6 +100,8 @@ def _serialize_movement(
         "quantite": movement.quantite,
         "dateMouvement": movement.date_mouvement,
         "justification": movement.justification,
+        # Utile côté front : permet d'afficher clairement si ce mouvement alimente la demande.
+        "countsAsSale": is_customer_sale_movement(movement.type, movement.justification),
     }
 
 
@@ -151,6 +192,49 @@ def record_stock_trace_only(
     return movement
 
 
+
+def _create_sale_from_customer_movement(
+    db: Session,
+    product: Product,
+    movement: StockMovement,
+) -> Sale | None:
+    """
+    Quand un mouvement de stock est une vraie vente client, on crée aussi
+    une vente applicative dans ventes + lignes_ventes.
+
+    Pourquoi ?
+    - mouvement_stock garde la traçabilité stock ;
+    - ventes/lignes_ventes représentent les ventes métier ;
+    - les KPI, la prévision, le pricing et l'élimination peuvent ensuite
+      retrouver cette vente comme une vraie vente applicative.
+
+    Protection anti-doublon :
+    cette fonction est appelée uniquement au moment de la création du mouvement.
+    Les services KPI ignorent déjà les mouvements d'une date si une ligne de vente
+    existe ce jour-là, donc on évite le double comptage.
+    """
+    if not is_customer_sale_movement(movement.type, movement.justification):
+        return None
+
+    sale = Sale(
+        date_vente=movement.date_mouvement or datetime.utcnow(),
+        source="mouvement_stock",
+        statut="VALIDEE",
+    )
+    db.add(sale)
+    db.flush()
+
+    sale_line = SaleLine(
+        vente_id=sale.id,
+        produit_id=product.id,
+        quantite=_safe_int(movement.quantite, 0),
+        prix_vente_unitaire=product.prix_vente or 0,
+    )
+    db.add(sale_line)
+    db.flush()
+
+    return sale
+
 def create_stock_movement_service(payload: StockMovementCreate, db: Session) -> dict:
     product = db.query(Product).filter(Product.id == payload.produit_id).first()
 
@@ -168,6 +252,14 @@ def create_stock_movement_service(payload: StockMovementCreate, db: Session) -> 
     _apply_stock_effect(product, movement.type, movement.quantite, reverse=False)
 
     db.add(movement)
+    db.flush()
+
+    sale = _create_sale_from_customer_movement(
+        db=db,
+        product=product,
+        movement=movement,
+    )
+
     db.commit()
     db.refresh(movement)
     db.refresh(product)
@@ -179,6 +271,13 @@ def create_stock_movement_service(payload: StockMovementCreate, db: Session) -> 
             product_name=product.nom,
             product_sku=product.sku,
         ),
+        "saleCreated": sale is not None,
+        "sale": {
+            "id": sale.id,
+            "source": sale.source,
+            "statut": sale.statut,
+            "dateVente": sale.date_vente,
+        } if sale is not None else None,
         "product": {
             "id": product.id,
             "sku": product.sku,
@@ -307,15 +406,30 @@ def get_product_stock_movement_summary_service(
     rows = (
         db.query(
             StockMovement.type,
+            StockMovement.justification,
             func.coalesce(func.sum(StockMovement.quantite), 0),
         )
         .filter(StockMovement.produit_id == product_id)
         .filter(StockMovement.date_mouvement >= since)
-        .group_by(StockMovement.type)
+        .group_by(StockMovement.type, StockMovement.justification)
         .all()
     )
 
-    totals = {movement_type: int(total or 0) for movement_type, total in rows}
+    totals: dict[str, int] = {}
+    totals_by_justification: dict[str, int] = {}
+    customer_sales_output = 0
+
+    for movement_type, justification, total in rows:
+        qty = int(total or 0)
+        totals[movement_type] = totals.get(movement_type, 0) + qty
+
+        justification_key = justification or "NON_RENSEIGNEE"
+        totals_by_justification[justification_key] = (
+            totals_by_justification.get(justification_key, 0) + qty
+        )
+
+        if is_customer_sale_movement(movement_type, justification):
+            customer_sales_output += qty
 
     entrees = (
         totals.get("ENTREE", 0)
@@ -329,7 +443,8 @@ def get_product_stock_movement_summary_service(
         + totals.get("RESERVATION", 0)
     )
 
-    avg_daily_output = sorties / days if days > 0 else 0
+    technical_outputs = max(sorties - customer_sales_output, 0)
+    avg_daily_output = customer_sales_output / days if days > 0 else 0
 
     return {
         "status": "success",
@@ -345,10 +460,15 @@ def get_product_stock_movement_summary_service(
         },
         "periodDays": days,
         "totalsByType": totals,
+        "totalsByJustification": totals_by_justification,
         "entrees": entrees,
         "sorties": sorties,
+        "ventesClientSorties": customer_sales_output,
+        "sortiesTechniques": technical_outputs,
         "avgDailyOutput": round(avg_daily_output, 2),
-        "demandSignal": sorties > 0,
+        "weeklyForecastFromSalesMovements": round(avg_daily_output * 7, 2),
+        "demandSignal": customer_sales_output > 0,
+        "demandSource": "mouvement_stock_vente_client" if customer_sales_output > 0 else "none",
     }
 
 
@@ -359,21 +479,27 @@ def estimate_demand_from_movements(
 ) -> dict:
     since = datetime.utcnow() - timedelta(days=days)
 
-    total = (
-        db.query(func.coalesce(func.sum(StockMovement.quantite), 0))
+    rows = (
+        db.query(StockMovement.type, StockMovement.justification, StockMovement.quantite)
         .filter(StockMovement.produit_id == product_id)
         .filter(StockMovement.date_mouvement >= since)
         .filter(StockMovement.type.in_(list(DEMAND_SIGNAL_TYPES)))
-        .scalar()
+        .all()
     )
 
-    total = int(total or 0)
+    total = sum(
+        _safe_int(row.quantite, 0)
+        for row in rows
+        if is_customer_sale_movement(row.type, row.justification)
+    )
+
     avg_daily = total / days if days > 0 else 0
 
     return {
-        "source": "mouvement_stock" if total > 0 else "none",
+        "source": "mouvement_stock_vente_client" if total > 0 else "none",
         "days": days,
         "total_output": total,
         "avg_daily_output": avg_daily,
         "weekly_forecast": avg_daily * 7,
+        "rule": "Seules les sorties avec justification VENTE_CLIENT sont considérées comme ventes.",
     }

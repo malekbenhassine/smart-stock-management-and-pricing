@@ -1,8 +1,0 @@
-competitor_id,name,base_url,is_active,collection_frequency_hours
-1,Jumia,https://jumia.example.com,True,6
-2,MyTek,https://mytek.example.com,True,6
-3,TunisiaNet,https://tunisianet.example.com,True,12
-4,Wiki,https://wiki.example.com,True,24
-5,Founa,https://founa.example.com,True,12
-6,Carrefour,https://carrefour.example.com,True,24
-7,Monoprix,https://monoprix.example.com,True,6

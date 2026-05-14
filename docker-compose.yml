@@ -61,6 +61,21 @@ services:
     networks:
       - smart_network
 
+  postgres_alerts:
+    image: postgres:15
+    container_name: postgres_alerts
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: alerts_db
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5437:5432"
+    volumes:
+      - postgres_alerts_data:/var/lib/postgresql/data
+    networks:
+      - smart_network
+
   csv_import_service:
     build:
       context: ./services/csv_import_service
@@ -155,14 +170,23 @@ services:
       - "8060:8060"
     networks:
       - smart_network
-  adminer:
-    image: adminer:latest
-    container_name: adminer
+
+
+  alerts_service:
+    build:
+      context: ./services/alerts_service
+    container_name: alerts_service
     restart: unless-stopped
     ports:
-      - "8080:8080"
+      - "8006:8006"
+    environment:
+      ALERTS_DATABASE_URL: postgresql://postgres:postgres@postgres_alerts:5432/alerts_db
+    depends_on:
+      - postgres_alerts
     networks:
       - smart_network
+
+
   api_gateway:
     build:
       context: ./api_gateway
@@ -194,6 +218,7 @@ volumes:
   postgres_stock_data:
   postgres_inference_data:
   postgres_auth_data:
+  postgres_alerts_data:
 
 networks:
   smart_network:

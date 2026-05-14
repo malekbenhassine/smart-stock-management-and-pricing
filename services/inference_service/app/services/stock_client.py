@@ -1,98 +1,152 @@
+from __future__ import annotations
+
 import os
+from typing import Any
 import requests
-from fastapi import HTTPException
+
 
 STOCK_SERVICE_URL = os.getenv("STOCK_SERVICE_URL", "http://stock_service:2004")
+STOCK_SERVICE_PUBLIC_URL = os.getenv("STOCK_SERVICE_PUBLIC_URL", "http://localhost:2004")
 
 
-def get_product_from_stock_service(product_id: int) -> dict:
-    try:
-        response = requests.get(
-            f"{STOCK_SERVICE_URL}/products/{product_id}",
-            timeout=10,
-        )
-        response.raise_for_status()
-        return response.json()
-    except requests.Timeout:
-        raise HTTPException(status_code=504, detail="stock_service timeout")
-    except requests.RequestException as e:
-        raise HTTPException(status_code=502, detail=f"Erreur stock_service: {str(e)}")
+def _base_url() -> str:
+    return STOCK_SERVICE_URL.rstrip("/")
+
+
+def _public_base_url() -> str:
+    return STOCK_SERVICE_PUBLIC_URL.rstrip("/")
+
+
+def _get_json(path: str, params: dict | None = None, timeout: int = 30):
+    """
+    Essaie d'abord l'URL Docker interne, puis localhost en fallback.
+    """
+    urls = [
+        f"{_base_url()}{path}",
+        f"{_public_base_url()}{path}",
+    ]
+
+    last_error = None
+    for url in urls:
+        try:
+            response = requests.get(url, params=params, timeout=timeout)
+            if response.status_code == 404:
+                last_error = RuntimeError(f"404 {url}")
+                continue
+            response.raise_for_status()
+            return response.json()
+        except Exception as exc:
+            last_error = exc
+
+    raise last_error or RuntimeError(f"Impossible d'appeler {path}")
+
+
+def get_product_by_id(product_id: Any) -> dict | None:
+    candidates = [
+        f"/products/{product_id}",
+        f"/api/v1/products/{product_id}",
+    ]
+
+    for path in candidates:
+        try:
+            data = _get_json(path, timeout=20)
+            if isinstance(data, dict):
+                return data
+        except Exception:
+            continue
+
+    return None
+
+
+def get_recent_history_from_stock_service(
+    product_id: Any,
+    limit: int = 140,
+) -> list[dict]:
+    """
+    Récupère l'historique de ventes depuis stock_service.
+
+    Important :
+    - limit >= 120 pour lag_90 et rolling_90.
+    - product_id doit idéalement être le SKU, pas l'id numérique.
+    """
+    params = {"product_id": str(product_id), "limit": int(limit)}
+
+    candidates = [
+        "/sales-history/recent",
+        "/api/v1/sales-history/recent",
+    ]
+
+    for path in candidates:
+        try:
+            data = _get_json(path, params=params, timeout=60)
+            if isinstance(data, list):
+                return data
+            if isinstance(data, dict):
+                for key in ["items", "data", "results", "history"]:
+                    if isinstance(data.get(key), list):
+                        return data[key]
+        except Exception:
+            continue
+
+    return []
+
+
+# Alias compatibles avec plusieurs anciens codes
+get_recent_sales_history = get_recent_history_from_stock_service
+get_product_history = get_recent_history_from_stock_service
+
+
+def get_product_from_stock_service(product_id: Any) -> dict:
+    """
+    Alias utilisé par recommend_price.py.
+    """
+    product = get_product_by_id(product_id)
+
+    if product is None:
+        raise RuntimeError(f"Produit introuvable dans stock_service: {product_id}")
+
+    return product
 
 
 def get_sales_history_from_stock_service(
-    store_id: str,
-    product_id: str,
-    target_date: str,
+    store_id: str | None = None,
+    product_id: Any | None = None,
+    target_date: str | None = None,
     n_days: int = 90,
+    limit: int | None = None,
 ) -> list[dict]:
-    try:
-        response = requests.get(
-            f"{STOCK_SERVICE_URL}/sales-history",
-            params={
-                "store_id": store_id,
-                "product_id": product_id,
-                "target_date": target_date,
-                "n_days": n_days,
-            },
-            timeout=30,
-        )
-        response.raise_for_status()
-        return response.json()
-    except requests.Timeout:
-        raise HTTPException(status_code=504, detail="stock_service history timeout")
-    except requests.RequestException as e:
-        raise HTTPException(
-            status_code=502,
-            detail=f"Erreur stock_service history: {str(e)}",
-        )
-
-
-def get_recent_history_from_stock_service(product_id: str, limit: int = 30) -> list[dict]:
-    try:
-        response = requests.get(
-            f"{STOCK_SERVICE_URL}/sales-history/recent",
-            params={
-                "product_id": product_id,
-                "limit": limit,
-            },
-            timeout=30,
-        )
-        response.raise_for_status()
-        return response.json()
-    except requests.Timeout:
-        raise HTTPException(status_code=504, detail="stock_service recent history timeout")
-    except requests.RequestException as e:
-        raise HTTPException(
-            status_code=502,
-            detail=f"Erreur stock_service recent history: {str(e)}",
-        )
-
-
-def get_latest_sales_date_from_stock_service(product_id: str) -> str | None:
     """
-    Récupère automatiquement la dernière date de vente disponible pour le produit.
-
-    Important :
-    - on ne met pas de date fixe ;
-    - si tu ajoutes de nouvelles ventes, la dernière date changera automatiquement ;
-    - on utilise la route déjà existante /sales-history/recent.
+    Alias de compatibilité pour les anciens modules ML.
+    La logique reste basée sur get_recent_history_from_stock_service().
+    """
+    return get_recent_history_from_stock_service(
+        product_id=product_id,
+        limit=int(limit or n_days or 90),
+    )
+def get_elimination_recommendation_from_stock_service(product_id, *args, **kwargs):
+    """
+    Compatibilité avec promo_service.py.
+    Récupère une recommandation d'élimination depuis stock_service si elle existe.
+    Sinon retourne une valeur neutre sans casser inference_service.
     """
     try:
-        rows = get_recent_history_from_stock_service(product_id=product_id, limit=365)
+        url = f"{STOCK_SERVICE_URL}/products/{product_id}/elimination-recommendation"
+        response = requests.get(url, timeout=30)
 
-        if not rows:
-            return None
+        if response.status_code == 200:
+            return response.json()
 
-        dates = [
-            row.get("date")
-            for row in rows
-            if row.get("date")
-        ]
-
-        if not dates:
-            return None
-
-        return max(dates)
+        return {
+            "product_id": product_id,
+            "should_eliminate": False,
+            "recommendation": None,
+            "status": "not_available",
+        }
 
     except Exception:
-        return None
+        return {
+            "product_id": product_id,
+            "should_eliminate": False,
+            "recommendation": None,
+            "status": "fallback",
+        }

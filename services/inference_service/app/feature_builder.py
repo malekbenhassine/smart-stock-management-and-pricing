@@ -1,247 +1,382 @@
-# inference_service / app / feature_builder.py
+from __future__ import annotations
 
-"""
-Reconstruit toutes les features nécessaires au modèle à partir de
-l'historique des ventes stocké en base, pour une date cible donnée.
+from pathlib import Path
+from typing import Any
 
-Version adaptée au projet :
-- tolère les champs absents ou inconnus
-- évite d'inventer des valeurs métier incohérentes
-- reste compatible avec les modèles déjà entraînés
-"""
-
+import joblib
 import numpy as np
 import pandas as pd
-from datetime import date, timedelta
-from sqlalchemy.orm import Session
-
-from app.services.stock_client import get_sales_history_from_stock_service
-
-# ── Helpers temporels ────────────────────────────────────────────────────────
-
-def _season(month: int) -> str:
-    return {
-        3: "Spring", 4: "Spring", 5: "Spring",
-        6: "Summer", 7: "Summer", 8: "Summer",
-        9: "Autumn", 10: "Autumn", 11: "Autumn",
-    }.get(month, "Winter")
 
 
-HOLIDAY_DATES = {
-    (1, 1), (2, 14), (4, 1), (7, 4), (10, 31),
-    (11, 25), (11, 26), (12, 24), (12, 25), (12, 31)
-}
+APP_DIR = Path(__file__).resolve().parent
+MODELS_DIR = APP_DIR / "models"
+
+FEATURES_PATH = MODELS_DIR / "demand_features.pkl"
+MAPPING_PATH = MODELS_DIR / "product_id_mapping.csv"
 
 
-def _is_holiday(d: date) -> int:
-    return int((d.month, d.day) in HOLIDAY_DATES)
+def _safe_float(value: Any, default: float = 0.0) -> float:
+    try:
+        if value is None or value == "":
+            return default
+        return float(value)
+    except Exception:
+        return default
 
 
-# ── Chargement de l'historique ───────────────────────────────────────────────
+def _get(obj: Any, name: str, default=None):
+    if isinstance(obj, dict):
+        return obj.get(name, default)
+    return getattr(obj, name, default)
 
-def _fetch_history(
-    db: Session,
-    store_id: str,
-    product_id: str,
-    target_date: date,
-    n_days: int = 90,
-) -> pd.DataFrame:
-    rows = get_sales_history_from_stock_service(
-        store_id=store_id,
-        product_id=product_id,
-        target_date=target_date.isoformat(),
-        n_days=n_days,
-    )
 
+def load_demand_features() -> list[str]:
+    if not FEATURES_PATH.exists():
+        raise FileNotFoundError(f"Fichier features introuvable : {FEATURES_PATH}")
+    features = joblib.load(FEATURES_PATH)
+    return list(features)
+
+
+def load_product_mapping() -> dict[str, str]:
+    """
+    Retourne mapping SKU/original -> product_id numérique du training.
+    Supporte les colonnes :
+    - product_id_original / product_id_numeric
+    """
+    if not MAPPING_PATH.exists():
+        return {}
+
+    df = pd.read_csv(MAPPING_PATH)
+
+    if "product_id_original" in df.columns and "product_id_numeric" in df.columns:
+        return {
+            str(r.product_id_original): str(r.product_id_numeric)
+            for r in df.itertuples(index=False)
+        }
+
+    return {}
+
+
+def normalize_history_rows(rows: list[dict]) -> pd.DataFrame:
     if not rows:
         return pd.DataFrame()
 
-    return pd.DataFrame(rows)
+    df = pd.DataFrame(rows).copy()
+    df.columns = (
+        df.columns.astype(str)
+        .str.strip()
+        .str.replace(" ", "_")
+        .str.replace("-", "_")
+        .str.lower()
+    )
+    df = df.loc[:, ~df.columns.duplicated()].copy()
 
-# ── Construction des features ────────────────────────────────────────────────
+    if "date" not in df.columns and "timestamp" in df.columns:
+        df["date"] = df["timestamp"]
 
-def build_features(
-    db: Session,
-    store_id: str,
-    product_id: str,
-    target_date: date,
-    price: float,
-    stock: float,
-    discount: float = 0.0,
-    competitor_pricing: float = None,
-    units_ordered: float = 0.0,
-    weather_condition: str = None,
-    category: str = None,
-    region: str = None,
-    trained_features: list = None,
-) -> dict:
-    """
-    Retourne un dict de features prêt pour model.predict().
-    Utilise l'historique DB pour les lags et rolling stats.
-    """
+    if "units_sold" not in df.columns:
+        if "sales" in df.columns:
+            df["units_sold"] = df["sales"]
+        elif "qty" in df.columns:
+            df["units_sold"] = df["qty"]
+        else:
+            df["units_sold"] = 0
 
-    hist = _fetch_history(db, store_id, product_id, target_date)
-    has_history = not hist.empty
+    if "inventory_level" not in df.columns:
+        if "stock" in df.columns:
+            df["inventory_level"] = df["stock"]
+        else:
+            df["inventory_level"] = 0
 
-    # Valeurs par défaut sûres
-    effective_competitor_pricing = competitor_pricing if competitor_pricing is not None else price
-    effective_units_ordered = units_ordered if units_ordered is not None else 0.0
-    effective_weather = weather_condition if weather_condition else "Unknown"
-    effective_region = region if region else "UNKNOWN"
-    effective_category = category if category else "UNKNOWN"
+    if "price" not in df.columns:
+        if "unit_price" in df.columns:
+            df["price"] = df["unit_price"]
+        else:
+            df["price"] = 0
 
-    # ── Série des ventes passées (indexée par date) ─────────────────────────
-    if has_history:
-        hist = hist.sort_values("date").set_index("date")
-        sales_series = hist["sales"]
-        price_series = hist["price"]
-    else:
-        sales_series = pd.Series(dtype=float)
-        price_series = pd.Series(dtype=float)
-
-    def lag(n: int):
-        """Ventes il y a n jours."""
-        target_minus_n = target_date - timedelta(days=n)
-        if target_minus_n in sales_series.index:
-            return float(sales_series[target_minus_n])
-        return np.nan
-
-    def rolling_mean(window: int):
-        recent = sales_series.tail(window)
-        return float(recent.mean()) if len(recent) > 0 else np.nan
-
-    def rolling_std(window: int):
-        recent = sales_series.tail(window)
-        return float(recent.std()) if len(recent) > 1 else 0.0
-
-    def rolling_max(window: int):
-        recent = sales_series.tail(window)
-        return float(recent.max()) if len(recent) > 0 else np.nan
-
-    def rolling_min(window: int):
-        recent = sales_series.tail(window)
-        return float(recent.min()) if len(recent) > 0 else np.nan
-
-    lag1 = lag(1)
-    lag2 = lag(2)
-    rm7 = rolling_mean(7)
-    rm14 = rolling_mean(14)
-    rm30 = rolling_mean(30)
-
-    # ── Features temporelles ────────────────────────────────────────────────
-    d = pd.Timestamp(target_date)
-    month = d.month
-    dow = d.weekday()
-    season = _season(month)
-    holiday = _is_holiday(target_date)
-
-    last_price = float(price_series.iloc[-1]) if len(price_series) > 0 else float(price)
-
-    feats = {
-        # Prix
-        "price": float(price),
-        "price_lag_1": last_price,
-        "price_change": (
-            (float(price) - last_price) / (last_price + 1e-9)
-            if len(price_series) > 0 else 0.0
-        ),
-
-        # Temporelles
-        "day": int(d.day),
-        "month": int(month),
-        "day_of_week": int(dow),
-        "week_of_year": int(d.isocalendar().week),
-        "is_weekend": int(dow >= 5),
-        "quarter": int(d.quarter),
-        "is_month_start": int(d.is_month_start),
-        "is_month_end": int(d.is_month_end),
-        "is_quarter_start": int(d.is_quarter_start),
-        "is_quarter_end": int(d.is_quarter_end),
-        "month_sin": float(np.sin(2 * np.pi * month / 12)),
-        "month_cos": float(np.cos(2 * np.pi * month / 12)),
-        "dow_sin": float(np.sin(2 * np.pi * dow / 7)),
-        "dow_cos": float(np.cos(2 * np.pi * dow / 7)),
-
-        # Lags
-        "lag_1": lag1,
-        "lag_7": lag(7),
-        "lag_14": lag(14),
-        "lag_21": lag(21),
-        "lag_30": lag(30),
-
-        # Rolling
-        "rolling_mean_7": rm7,
-        "rolling_mean_14": rm14,
-        "rolling_mean_30": rm30,
-        "rolling_std_7": rolling_std(7),
-        "rolling_max_7": rolling_max(7),
-        "rolling_min_7": rolling_min(7),
-
-        # Différences / tendances
-        "sales_diff": (lag1 - lag2) if not np.isnan(lag1) and not np.isnan(lag2) else 0.0,
-        "trend": (rm7 - rm30) if not np.isnan(rm7) and not np.isnan(rm30) else 0.0,
-        "trend_short_medium": (rm7 - rm14) if not np.isnan(rm7) and not np.isnan(rm14) else 0.0,
-        "trend_medium_long": (rm14 - rm30) if not np.isnan(rm14) and not np.isnan(rm30) else 0.0,
-
-        # Stock
-        "stock": float(stock),
-        "stock_lag": float(stock),
-        "stock_to_sales": float(stock) / (lag1 + 1) if not np.isnan(lag1) else float(stock),
-        "stock_vs_avg_sales": float(stock) / (rm7 + 1) if not np.isnan(rm7) else float(stock),
-
-        # Métier
-        "discount": float(discount),
-        "competitor_pricing": float(effective_competitor_pricing),
-        "units_ordered": float(effective_units_ordered),
-        "price_discount_interaction": float(price) * float(discount),
-        "price_vs_competitor": float(price) - float(effective_competitor_pricing),
-        "competitor_ratio": float(price) / (float(effective_competitor_pricing) + 1),
-        "promo_discount_interaction": holiday * float(discount),
+    defaults = {
+        "discount": 0,
+        "competitor_pricing": np.nan,
+        "units_ordered": 0,
+        "holiday_promotion": 0,
+        "store_id": "S001",
+        "region": "Tunis",
+        "weather_condition": "Sunny",
+        "seasonality": "Regular",
+        "category": "Accessories",
     }
 
-    # ── One-hot catégorielles ────────────────────────────────────────────────
-    one_hot_groups = {
-        "category_": effective_category,
-        "region_": effective_region,
-        "weather_condition_": effective_weather,
-        "holiday_promotion_": str(holiday),
-        "seasonality_": season,
-        "store_id_": str(store_id),
-        "product_id_": str(product_id),
+    for col, value in defaults.items():
+        if col not in df.columns:
+            df[col] = value
+
+    df["date"] = pd.to_datetime(df["date"], errors="coerce")
+    df = df.dropna(subset=["date"]).copy()
+    df = df.sort_values("date")
+
+    numeric_cols = [
+        "units_sold",
+        "inventory_level",
+        "price",
+        "discount",
+        "competitor_pricing",
+        "units_ordered",
+        "holiday_promotion",
+    ]
+
+    for col in numeric_cols:
+        df[col] = pd.to_numeric(df[col], errors="coerce")
+
+    df["units_sold"] = df["units_sold"].fillna(0.0)
+    df["inventory_level"] = df["inventory_level"].fillna(0.0)
+
+# Corrigé pour pandas récent
+    df["price"] = df["price"].ffill().fillna(0.0)
+
+    df["discount"] = df["discount"].fillna(0.0)
+    df["competitor_pricing"] = df["competitor_pricing"].fillna(df["price"])
+    df["units_ordered"] = df["units_ordered"].fillna(0.0)
+    df["holiday_promotion"] = df["holiday_promotion"].fillna(0).astype(int)
+    return df
+
+
+def _last_or_default(df: pd.DataFrame, col: str, default):
+    if df.empty or col not in df.columns:
+        return default
+    value = df[col].dropna()
+    if value.empty:
+        return default
+    return value.iloc[-1]
+
+
+def _lag(series: pd.Series, n: int) -> float:
+    if len(series) > n:
+        return _safe_float(series.iloc[-n - 1], 0.0)
+    if len(series) > 0:
+        return _safe_float(series.iloc[0], 0.0)
+    return 0.0
+
+
+def _rolling_mean(series: pd.Series, n: int) -> float:
+    if len(series) == 0:
+        return 0.0
+    return _safe_float(series.tail(n).mean(), 0.0)
+
+
+def _rolling_std(series: pd.Series, n: int) -> float:
+    if len(series) <= 1:
+        return 0.0
+    return _safe_float(series.tail(n).std(), 0.0)
+
+
+def _rolling_max(series: pd.Series, n: int) -> float:
+    if len(series) == 0:
+        return 0.0
+    return _safe_float(series.tail(n).max(), 0.0)
+
+
+def _rolling_min(series: pd.Series, n: int) -> float:
+    if len(series) == 0:
+        return 0.0
+    return _safe_float(series.tail(n).min(), 0.0)
+
+
+def _one_hot(features: dict, prefix: str, value: Any):
+    key = f"{prefix}_{value}"
+    features[key] = 1.0
+
+
+def resolve_training_product_id(req: Any, mapping: dict[str, str]) -> str | None:
+    """
+    Convertit SKU réel -> id numérique du training, si mapping disponible.
+    """
+    sku = _get(req, "sku", None)
+    pid = _get(req, "product_id", None)
+
+    for candidate in [sku, pid]:
+        if candidate is None:
+            continue
+        key = str(candidate)
+        if key in mapping:
+            return str(mapping[key])
+
+    if pid is not None:
+        return str(pid)
+
+    return None
+
+
+def build_features_for_model(
+    req: Any,
+    history_rows: list[dict],
+    demand_features: list[str] | None = None,
+) -> pd.DataFrame:
+    """
+    Reconstruit une ligne de features alignée exactement avec demand_features.pkl.
+    """
+    demand_features = demand_features or load_demand_features()
+    mapping = load_product_mapping()
+
+    hist = normalize_history_rows(history_rows)
+    sales = hist["units_sold"] if not hist.empty else pd.Series(dtype=float)
+
+    price = _safe_float(_get(req, "price", None), _safe_float(_last_or_default(hist, "price", 0), 0))
+    stock = _safe_float(_get(req, "stock", None), _safe_float(_last_or_default(hist, "inventory_level", 0), 0))
+    discount = _safe_float(_get(req, "discount", None), _safe_float(_last_or_default(hist, "discount", 0), 0))
+    competitor = _safe_float(
+        _get(req, "competitor_pricing", None),
+        _safe_float(_last_or_default(hist, "competitor_pricing", price), price),
+    )
+    units_ordered = _safe_float(
+        _get(req, "units_ordered", None),
+        _safe_float(_last_or_default(hist, "units_ordered", 0), 0),
+    )
+
+    latest_date = hist["date"].max() if not hist.empty else pd.Timestamp.today()
+    latest_date = pd.to_datetime(latest_date)
+
+    features = {
+        "price": price,
+        "price_change": 0.0,
+        "price_lag_1": price,
+        "day": float(latest_date.day),
+        "month": float(latest_date.month),
+        "day_of_week": float(latest_date.dayofweek),
+        "week_of_year": float(latest_date.isocalendar().week),
+        "is_weekend": float(latest_date.dayofweek >= 5),
+        "quarter": float(latest_date.quarter),
+        "is_month_start": float(latest_date.is_month_start),
+        "is_month_end": float(latest_date.is_month_end),
+        "is_quarter_start": float(latest_date.is_quarter_start),
+        "is_quarter_end": float(latest_date.is_quarter_end),
+        "month_sin": float(np.sin(2 * np.pi * latest_date.month / 12)),
+        "month_cos": float(np.cos(2 * np.pi * latest_date.month / 12)),
+        "dow_sin": float(np.sin(2 * np.pi * latest_date.dayofweek / 7)),
+        "dow_cos": float(np.cos(2 * np.pi * latest_date.dayofweek / 7)),
+        "stock": stock,
+        "stock_lag": _safe_float(_last_or_default(hist, "inventory_level", stock), stock),
+        "discount": discount,
+        "competitor_pricing": competitor,
+        "units_ordered": units_ordered,
+        "price_discount_interaction": price * discount,
+        "price_vs_competitor": price - competitor,
+        "competitor_ratio": price / competitor if competitor else 1.0,
+        "promo_discount_interaction": discount * float(_get(req, "holiday_promotion", 0) or 0),
     }
 
-    if trained_features:
-        for prefix, value in one_hot_groups.items():
-            for feat in trained_features:
-                if feat.startswith(prefix):
-                    feats[feat] = 0
+    for n in [1, 7, 14, 21, 30, 60, 90]:
+        features[f"lag_{n}"] = _lag(sales, n)
 
-            col = f"{prefix}{value}"
-            if col in trained_features:
-                feats[col] = 1
+    for n in [7, 14, 30, 60, 90]:
+        features[f"rolling_mean_{n}"] = _rolling_mean(sales, n)
 
-    # ── Alignement final sur trained_features ────────────────────────────────
-    if trained_features:
-        row = {f: feats.get(f, 0.0) for f in trained_features}
-        row = {
-            k: (
-                0.0 if (
-                    v is None or
-                    (isinstance(v, float) and np.isnan(v))
-                ) else v
-            )
-            for k, v in row.items()
-        }
-        return row
+    features["rolling_std_7"] = _rolling_std(sales, 7)
+    features["rolling_std_30"] = _rolling_std(sales, 30)
+    features["rolling_max_7"] = _rolling_max(sales, 7)
+    features["rolling_min_7"] = _rolling_min(sales, 7)
 
-    # Sans trained_features : nettoyer les NaN quand même
-    cleaned = {
-        k: (
-            0.0 if (
-                v is None or
-                (isinstance(v, float) and np.isnan(v))
-            ) else v
+    features["sales_diff"] = features["lag_1"] - features["lag_7"]
+    features["trend"] = features["rolling_mean_7"] - features["rolling_mean_30"]
+    features["trend_short_medium"] = features["rolling_mean_7"] - features["rolling_mean_14"]
+    features["trend_medium_long"] = features["rolling_mean_30"] - features["rolling_mean_60"]
+    features["trend_long"] = features["rolling_mean_60"] - features["rolling_mean_90"]
+    features["cumulative_sales"] = _safe_float(sales.sum(), 0.0)
+
+    features["stock_to_sales"] = stock / features["rolling_mean_7"] if features["rolling_mean_7"] else 999.0
+    features["stock_vs_avg_sales"] = stock - features["rolling_mean_30"]
+
+    promo_active = int(discount > 0 or _safe_float(_get(req, "holiday_promotion", 0), 0) > 0)
+    features["is_promo_active"] = float(promo_active)
+    features["promo_discount"] = discount
+    features["promo_expected_lift"] = 1.0 + min(discount, 50.0) / 100.0
+    features["is_promo_active_lag1"] = float(promo_active)
+    features["promo_expected_lift_lag1"] = features["promo_expected_lift"]
+    features["price_x_promo"] = price * promo_active
+    features["lift_x_discount"] = features["promo_expected_lift"] * discount
+
+    category = str(_get(req, "category", _last_or_default(hist, "category", "Accessories")))
+    region = str(_get(req, "region", _last_or_default(hist, "region", "Tunis")))
+    store_id = str(_get(req, "store_id", _last_or_default(hist, "store_id", "S001")))
+    weather = str(_get(req, "weather_condition", _last_or_default(hist, "weather_condition", "Sunny")))
+    seasonality = str(_get(req, "seasonality", _last_or_default(hist, "seasonality", "Regular")))
+    holiday = int(_safe_float(_get(req, "holiday_promotion", _last_or_default(hist, "holiday_promotion", 0)), 0))
+
+    _one_hot(features, "category", category)
+    _one_hot(features, "region", region)
+    _one_hot(features, "store_id", store_id)
+    _one_hot(features, "weather_condition", weather)
+    _one_hot(features, "seasonality", seasonality)
+    _one_hot(features, "holiday_promotion", holiday)
+
+    training_pid = resolve_training_product_id(req, mapping)
+    if training_pid is not None:
+        _one_hot(features, "product_id", training_pid)
+
+    row = {name: _safe_float(features.get(name, 0.0), 0.0) for name in demand_features}
+    return pd.DataFrame([row], columns=demand_features)
+
+def _season_from_month(month: int) -> str:
+    return {
+        12: "Winter", 1: "Winter", 2: "Winter",
+        3: "Spring", 4: "Spring", 5: "Spring",
+        6: "Summer", 7: "Summer", 8: "Summer",
+        9: "Autumn", 10: "Autumn", 11: "Autumn",
+    }.get(int(month), "Regular")
+
+
+def build_features(*args, **kwargs) -> dict:
+    """
+    Fonction de compatibilité utilisée par price_service.py.
+    Elle accepte l'ancien appel par mots-clés : build_features(db=..., product_id=..., trained_features=...).
+    Elle reconstruit les features avec le même moteur que predict_demand afin de garder la logique ML.
+    """
+    from types import SimpleNamespace
+    from datetime import date as date_cls
+    from app.services.stock_client import get_recent_history_from_stock_service
+
+    # Cas ancien : build_features(db=..., store_id=..., product_id=..., target_date=..., trained_features=...)
+    if kwargs:
+        target_date = kwargs.get("target_date") or date_cls.today()
+        month = getattr(target_date, "month", pd.Timestamp.today().month)
+        req = SimpleNamespace(
+            product_id=kwargs.get("product_id"),
+            sku=kwargs.get("product_id"),
+            price=_safe_float(kwargs.get("price"), 0.0),
+            stock=_safe_float(kwargs.get("stock"), 0.0),
+            discount=_safe_float(kwargs.get("discount"), 0.0),
+            competitor_pricing=_safe_float(kwargs.get("competitor_pricing"), _safe_float(kwargs.get("price"), 0.0)),
+            units_ordered=_safe_float(kwargs.get("units_ordered"), 0.0),
+            weather_condition=kwargs.get("weather_condition") or "Sunny",
+            category=kwargs.get("category") or "Accessories",
+            region=kwargs.get("region") or "Tunis",
+            store_id=kwargs.get("store_id") or "S001",
+            seasonality=kwargs.get("seasonality") or _season_from_month(month),
+            holiday_promotion=kwargs.get("holiday_promotion") or 0,
         )
-        for k, v in feats.items()
+        trained_features = kwargs.get("trained_features") or load_demand_features()
+        history_rows = get_recent_history_from_stock_service(req.sku or req.product_id, limit=140)
+        X = build_features_for_model(req, history_rows, demand_features=list(trained_features))
+        return X.iloc[0].to_dict()
+
+    # Cas simple : build_features(request)
+    request = args[0] if args else None
+    if request is None:
+        return {}
+
+    data = request.model_dump() if hasattr(request, "model_dump") else request.dict() if hasattr(request, "dict") else request if isinstance(request, dict) else {}
+    return {
+        "product_id": data.get("product_id"),
+        "sku": data.get("sku") or data.get("product_id"),
+        "category": data.get("category") or "Accessories",
+        "brand": data.get("brand"),
+        "price": _safe_float(data.get("price") or data.get("current_price"), 0.0),
+        "stock": _safe_float(data.get("stock") or data.get("inventory_level"), 0.0),
+        "discount": _safe_float(data.get("discount"), 0.0),
+        "competitor_pricing": _safe_float(data.get("competitor_pricing") or data.get("competitor_price"), 0.0),
+        "units_ordered": _safe_float(data.get("units_ordered"), 0.0),
+        "store_id": data.get("store_id") or "S001",
+        "region": data.get("region") or "Tunis",
     }
-    return cleaned
+
+# Alias
+build_model_features = build_features_for_model

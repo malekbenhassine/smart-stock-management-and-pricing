@@ -171,6 +171,170 @@ def _direct_mibro_c4_match(product: Product, item: ProductCompetitorCreate) -> b
     )
 
 
+
+
+# ============================================================
+# Sécurité anti-faux matching catalogue
+# ============================================================
+
+def _detect_product_family(text: Optional[str]) -> Optional[str]:
+    """
+    Détecte une famille produit métier pour bloquer les faux matchs graves.
+
+    Important :
+    - on préfère rejeter un doute plutôt que créer un faux MATCHED ;
+    - cette fonction sert surtout au matching catalogue / scraping large.
+    """
+    t = _compact_words(text or "")
+    if not t:
+        return None
+
+    # Accessoires téléphone AVANT smartphone
+    if any(k in t for k in [
+        "protectionecran", "protectiondecran", "verretrempe", "screenforce",
+        "invisiglass", "coque", "etui", "filmprotection", "protectionsamsung",
+        "chargeuriphone", "cableiphone", "supporttelephone", "supporttablette",
+    ]):
+        return "phone_accessory"
+
+    rules = [
+        ("motherboard", [
+            "cartemere", "motherboard", "lga", "socket", "z690", "z790",
+            "b550", "b650", "b760", "x670", "ddr4lga", "ddr5lga",
+        ]),
+        ("cooling", [
+            "ventilateurdeprocesseur", "refroidisseur", "ventirad", "watercooling",
+            "coolermaster", "hyper212", "coolerprocesseur", "ventiloprocesseur",
+        ]),
+        ("external_storage", [
+            "disquedurexterne", "hddexterne", "ssdexterne", "externalhdd",
+            "externalssd", "seagateexpansion", "wdpassport", "disqueexterne",
+        ]),
+        ("desktop", [
+            "desktop", "desktops", "pcbureau", "ordinateurdebureau",
+            "inspirondesktop", "tourpc", "minipc", "allinone",
+        ]),
+        ("laptop", [
+            "pcportable", "ordinateurportable", "laptop", "notebook",
+            "ideapad", "vivobook", "thinkpad", "pavilion", "victus",
+            "elitebook", "probook", "latitude", "zenbook", "macbook",
+        ]),
+        ("smartphone", [
+            "smartphone", "telephone", "mobile", "iphone", "galaxy",
+            "samsunga", "samsungs", "redmi", "xiaomi", "oppo", "honor",
+            "realme", "infinix", "tecno", "itel",
+        ]),
+        ("monitor", ["ecranpc", "moniteur", "monitor", "ecrangamer", "ecranmsi"]),
+        ("printer", ["imprimante", "printer", "canonpixma", "epson", "brother"]),
+        ("mouse", ["souris", "mouse"]),
+        ("keyboard", ["clavier", "keyboard"]),
+        ("keyboard_mouse_pack", ["clavieretsouris", "packclavier", "comboclavier"]),
+        ("earphones", ["ecouteur", "ecouteurs", "earbuds", "casque", "headset"]),
+        ("adapter", ["adaptateur", "adapter", "convertisseur", "hubusb", "dongle"]),
+        ("watch", ["montreconnectee", "smartwatch", "mibro", "kieslect", "amazfit", "haylou"]),
+    ]
+
+    for family, keywords in rules:
+        if any(k in t for k in keywords):
+            return family
+    return None
+
+
+def _families_compatible(internal_family: Optional[str], competitor_family: Optional[str]) -> bool:
+    """
+    Compatibilité stricte.
+    Si les deux familles sont connues et différentes => rejet.
+    Les groupes compatibles restent en validation manuelle, jamais auto.
+    """
+    if not internal_family or not competitor_family:
+        return True
+
+    if internal_family == competitor_family:
+        return True
+
+    compatible_groups = [
+        {"keyboard", "mouse", "keyboard_mouse_pack"},
+    ]
+
+    return any(internal_family in g and competitor_family in g for g in compatible_groups)
+
+
+def _has_strong_identity_evidence(product: Product, item: ProductCompetitorCreate, score: float, details: dict | None) -> bool:
+    """
+    Empêche les faux 75/auto.
+    On accepte un match seulement si on a une preuve métier :
+    - SKU/référence interne exacte ;
+    - règle spéciale validée ;
+    - ou score élevé avec marque + modèle réellement présents.
+    """
+    details = details or {}
+    if _direct_reference_match(product, item):
+        return True
+    if _direct_mibro_c4_match(product, item):
+        return True
+
+    product_text = _compact_words(" ".join([
+        getattr(product, "nom", "") or "",
+        getattr(product, "description", "") or "",
+        getattr(product, "marque", "") or "",
+        getattr(product, "sku", "") or "",
+        getattr(product, "categorie", "") or "",
+    ]))
+    item_text = _compact_words(" ".join([
+        item.nomProduit or "",
+        item.descriptionConcurrent or "",
+        item.skuConcurrent or "",
+        item.urlProduit or "",
+    ]))
+
+    product_family = _detect_product_family(product_text)
+    item_family = _detect_product_family(item_text)
+    if product_family and item_family and not _families_compatible(product_family, item_family):
+        return False
+
+    product_brand = _compact_words(getattr(product, "marque", "") or "")
+    if product_brand and len(product_brand) >= 3 and product_brand not in item_text:
+        return False
+
+    # Tokens forts : mots alphanumériques de modèle/gamme (inspiron, a17, xpaw021, etc.)
+    raw_model_text = _compact_words(" ".join([
+        getattr(product, "nom", "") or "",
+        getattr(product, "sku", "") or "",
+    ]))
+    generic = {
+        "pc", "desktop", "desktops", "ordinateur", "bureau", "portable", "smartphone",
+        "telephone", "noir", "gris", "blanc", "silver", "black", "avec", "sans",
+        "go", "gb", "to", "tb", "asus", "samsung", "dell", "hp", "lenovo", "apple",
+    }
+
+    tokens = set(re.findall(r"[a-z]+\d+[a-z]*|\d+[a-z]+|[a-z]{3,}", raw_model_text))
+    tokens = {t for t in tokens if t not in generic}
+
+    # Pour les smartphones : modèle A17 / S24 / etc. obligatoire
+    phone_models = set(re.findall(r"\b[asmz]\d{1,3}[a-z]*\b", raw_model_text))
+    if phone_models:
+        return any(m in item_text for m in phone_models)
+
+    # Pour PC/desktop/laptop : il faut au moins une gamme forte (inspiron, vivobook...)
+    strong_model_words = {
+        "inspiron", "vivobook", "zenbook", "thinkpad", "ideapad", "pavilion",
+        "victus", "elitebook", "probook", "latitude", "rog", "tuf", "nitro",
+        "predator", "aspire", "macbook",
+    }
+    expected_strong = tokens.intersection(strong_model_words)
+    if expected_strong:
+        return any(t in item_text for t in expected_strong)
+
+    # Dernier recours : score très haut + pas de mismatch critique.
+    critical = details.get("criticalMismatches") or details.get("critical_mismatches") or []
+    return float(score or 0) >= 90 and not critical
+
+
+def _is_exact_reference_secure(product: Product, item: ProductCompetitorCreate) -> bool:
+    """Match exact uniquement si le SKU interne apparaît vraiment dans le texte concurrent."""
+    return _direct_reference_match(product, item)
+
+
 # ============================================================
 # Serializer utilisé par les routes
 # ============================================================
@@ -232,6 +396,22 @@ def _find_best_product_match(
     best_details = None
 
     for product in products:
+        internal_family = _detect_product_family(" ".join([
+            getattr(product, "nom", "") or "",
+            getattr(product, "categorie", "") or "",
+            getattr(product, "description", "") or "",
+        ]))
+        competitor_family = _detect_product_family(" ".join([
+            item.nomProduit or "",
+            item.descriptionConcurrent or "",
+            item.urlProduit or "",
+        ]))
+
+        # Sécurité catalogue : si les familles sont clairement incompatibles,
+        # on ne calcule même pas le score.
+        if not _families_compatible(internal_family, competitor_family):
+            continue
+
         # 1) Match direct par référence interne : prioritaire
         if _direct_reference_match(product, item):
             details = {
@@ -299,6 +479,26 @@ def _find_best_product_match(
             competitor_name=item.nomProduit or "",
             competitor_desc=competitor_description,
         )
+
+        # Sécurité importante : un score 100 sans référence/SKU exact est dangereux.
+        # Exemple corrigé : adaptateur USB marqué MATCHED avec un PC portable.
+        if score >= 100 and not _is_exact_reference_secure(product, item):
+            if details is None:
+                details = {}
+            details = {
+                **details,
+                "same_product": False,
+                "sameProduct": False,
+                "score": 59,
+                "match_type": "NO_MATCH",
+                "matchType": "NO_MATCH",
+                "status": "IGNORED",
+                "reasons": (details.get("reasons") or []) + [
+                    "Score 100 refusé : aucune référence/SKU interne exacte trouvée dans le produit concurrent."
+                ],
+                "criticalMismatches": list(set((details.get("criticalMismatches") or []) + ["reference_absente"])),
+            }
+            score = 59.0
 
         if score > best_score:
             best_score = score
@@ -468,19 +668,90 @@ def _upsert_best_competitor_product(
 # Route POST /competitor-products/from-scraping
 # ============================================================
 
+def _serialize_saved_scraping_item(
+    saved_pc: ProductCompetitor,
+    product: Product,
+    item: ProductCompetitorCreate,
+    score: float | int | None,
+    status: str | None,
+) -> dict:
+    """
+    Format unique renvoyé au scraping_service puis au front.
+    Sans ce format, le résumé affiche bien "Enregistrés", mais la table front reste vide.
+    """
+    return {
+        "id": _get_attr(saved_pc, "id"),
+        "produitInterne": {
+            "id": _get_attr(product, "id"),
+            "sku": _get_attr(product, "sku"),
+            "nom": _get_attr(product, "nom"),
+            "name": _get_attr(product, "nom"),
+            "categorie": _get_attr(product, "categorie"),
+            "marque": _get_attr(product, "marque"),
+            "prixVente": _get_attr(product, "prix_vente"),
+        },
+        "produit_interne": {
+            "id": _get_attr(product, "id"),
+            "sku": _get_attr(product, "sku"),
+            "nom": _get_attr(product, "nom"),
+            "name": _get_attr(product, "nom"),
+            "categorie": _get_attr(product, "categorie"),
+            "marque": _get_attr(product, "marque"),
+            "prixVente": _get_attr(product, "prix_vente"),
+        },
+        "produitScrape": {
+            "id": _get_attr(saved_pc, "id"),
+            "urlProduit": _get_attr(saved_pc, "url_produit", item.urlProduit),
+            "skuConcurrent": _get_attr(saved_pc, "sku_concurrent", item.skuConcurrent),
+            "nomProduit": _get_attr(saved_pc, "nom_produit", item.nomProduit),
+            "descriptionConcurrent": _get_attr(saved_pc, "description_concurrent", item.descriptionConcurrent),
+            "prixConcurrent": _get_attr(saved_pc, "prix_concurrent", item.prixConcurrent),
+            "ancienPrixConcurrent": _get_attr(saved_pc, "ancien_prix_concurrent", item.ancienPrixConcurrent),
+            "isPromo": _get_attr(saved_pc, "is_promo", item.isPromo),
+            "disponibilite": _get_attr(saved_pc, "disponibilite", item.disponibilite),
+            "concurrentId": _get_attr(saved_pc, "concurrent_id", item.concurrent_id),
+        },
+        "produit_scrape": {
+            "id": _get_attr(saved_pc, "id"),
+            "urlProduit": _get_attr(saved_pc, "url_produit", item.urlProduit),
+            "skuConcurrent": _get_attr(saved_pc, "sku_concurrent", item.skuConcurrent),
+            "nomProduit": _get_attr(saved_pc, "nom_produit", item.nomProduit),
+            "descriptionConcurrent": _get_attr(saved_pc, "description_concurrent", item.descriptionConcurrent),
+            "prixConcurrent": _get_attr(saved_pc, "prix_concurrent", item.prixConcurrent),
+            "ancienPrixConcurrent": _get_attr(saved_pc, "ancien_prix_concurrent", item.ancienPrixConcurrent),
+            "isPromo": _get_attr(saved_pc, "is_promo", item.isPromo),
+            "disponibilite": _get_attr(saved_pc, "disponibilite", item.disponibilite),
+            "concurrentId": _get_attr(saved_pc, "concurrent_id", item.concurrent_id),
+        },
+        "concurrentId": _get_attr(saved_pc, "concurrent_id", item.concurrent_id),
+        "urlProduit": _get_attr(saved_pc, "url_produit", item.urlProduit),
+        "nomProduit": _get_attr(saved_pc, "nom_produit", item.nomProduit),
+        "prixConcurrent": _get_attr(saved_pc, "prix_concurrent", item.prixConcurrent),
+        "score": score,
+        "scoreMatching": score,
+        "match_score": score,
+        "statut": status,
+        "statutMatching": status,
+        "match_status": status,
+        "actionRequired": str(status).upper() == "MANUAL_REVIEW" or (score is not None and float(score) != 100),
+        "canValidate": str(status).upper() == "MANUAL_REVIEW" or (score is not None and float(score) != 100),
+    }
+
+
 def bulk_save_scraped_with_matching(items: list[dict], db: Session) -> dict:
     inserted = 0
     updated = 0
+    matched = 0
     manual_review = 0
     ignored = 0
     invalid = 0
 
     manual_items = []
+    saved_items = []
     discarded_candidates = 0
 
     best_by_product_and_competitor: dict[tuple[int, int], dict] = {}
 
-    # Optimisation importante : on charge les produits internes une seule fois
     products_cache = db.query(Product).all()
 
     for raw in items:
@@ -521,13 +792,26 @@ def bulk_save_scraped_with_matching(items: list[dict], db: Session) -> dict:
                 ignored += 1
                 continue
 
-            # FIX: get status from details first, fallback to match_status with score
             status = details.get("status") or match_status(score, details)
-            # Extra safety: if details has no status but score qualifies, promote it
-            if status == "IGNORED" and score >= 75:
-                status = "MATCHED"
-            elif status == "IGNORED" and score >= 60:
-                status = "MANUAL_REVIEW"
+
+            # Sécurité : ne jamais transformer un NO_MATCH/IGNORED en MATCHED
+            # uniquement parce qu'un score numérique vaut 75.
+            if not _has_strong_identity_evidence(product, item, score, details):
+                status = "IGNORED"
+                if details is None:
+                    details = {}
+                details = {
+                    **details,
+                    "status": "IGNORED",
+                    "match_type": "NO_MATCH",
+                    "matchType": "NO_MATCH",
+                    "same_product": False,
+                    "sameProduct": False,
+                    "reasons": (details.get("reasons") or []) + [
+                        "Rejet sécurité : preuve d'identité insuffisante pour éviter un faux match."
+                    ],
+                }
+                score = min(float(score or 0), 59.0)
 
             if status == "IGNORED":
                 ignored += 1
@@ -547,7 +831,6 @@ def bulk_save_scraped_with_matching(items: list[dict], db: Session) -> dict:
             if _is_better_candidate(candidate, current_best):
                 if current_best is not None:
                     discarded_candidates += 1
-
                 best_by_product_and_competitor[key] = candidate
             else:
                 discarded_candidates += 1
@@ -573,24 +856,37 @@ def bulk_save_scraped_with_matching(items: list[dict], db: Session) -> dict:
             status=status,
         )
 
-        # Après upsert, le statut final peut être MANUAL_REVIEW même si le
-        # matching automatique avait détecté MATCHED.
         status = _get_attr(saved_pc, "statut_matching", default=status)
+        score = _get_attr(saved_pc, "score_matching", default=score)
 
         if action == "inserted":
             inserted += 1
         else:
             updated += 1
 
+        if status == "MATCHED":
+            matched += 1
+
         if status == "MANUAL_REVIEW":
             manual_review += 1
             manual_items.append({
+                "id": _get_attr(saved_pc, "id"),
                 "nomProduitConcurrent": item.nomProduit,
                 "produitInterne": product.nom,
                 "produitId": product.id,
                 "scoreMatching": score,
                 "urlProduit": item.urlProduit,
             })
+
+        saved_items.append(
+            _serialize_saved_scraping_item(
+                saved_pc=saved_pc,
+                product=product,
+                item=item,
+                score=score,
+                status=status,
+            )
+        )
 
     ignored += discarded_candidates
 
@@ -601,10 +897,19 @@ def bulk_save_scraped_with_matching(items: list[dict], db: Session) -> dict:
         "total_received": len(items),
         "inserted": inserted,
         "updated": updated,
+        "rows": inserted + updated,
+        "matched": matched,
         "manual_review": manual_review,
         "ignored": ignored,
         "invalid": invalid,
         "manual_items": manual_items,
+        "saved_items": saved_items,
+        "scraped_products": saved_items,
+        "items": saved_items,
+        "validation_items": [
+            item for item in saved_items
+            if str(item.get("statutMatching")).upper() == "MANUAL_REVIEW" or item.get("actionRequired")
+        ],
     }
 
 

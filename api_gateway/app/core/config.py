@@ -16,5 +16,9 @@ class Settings(BaseSettings):
     DEFAULT_TIMEOUT_SECONDS: float = 180.0
     LONG_TIMEOUT_SECONDS: float = 900.0
 
+    # Sécurité: si une URL devient trop longue, le gateway refuse clairement.
+    # La bonne solution est d'utiliser POST avec body JSON.
+    MAX_URL_LENGTH: int = 4096
+
 
 settings = Settings()

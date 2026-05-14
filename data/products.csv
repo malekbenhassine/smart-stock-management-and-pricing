@@ -1,201 +1,37 @@
-product_id,sku,name,category,brand,unit,cost_price,min_margin,min_price,current_price,threshold_min,threshold_max,current_stock,created_at,is_active
-1,HP-INF-0001,HP Informatique Pro 873,Informatique,HP,box,86.5,0.19,102.94,121.47,15,117,77,2026-01-24,True
-2,BR-BUR-0002,Brother Bureautique Pro 378,Bureautique,Brother,box,103.3,0.29,133.26,164.74,13,112,21,2025-12-01,True
-3,XE-INF-0003,Xerox Informatique Max 120,Informatique,Xerox,piece,595.41,0.23,732.35,969.09,11,191,202,2025-01-13,True
-4,AS-BUR-0004,Asus Bureautique Eco 903,Bureautique,Asus,pack,343.0,0.28,439.04,491.6,34,115,25,2025-05-23,True
-5,AS-ACC-0005,Asus Accessoires Max 485,Accessoires,Asus,pack,346.48,0.14,394.99,455.85,22,175,72,2024-02-29,True
-6,XE-TÉL-0006,Xerox Téléphonie Plus 491,Téléphonie,Xerox,piece,794.56,0.28,1017.04,1356.71,39,96,115,2025-07-03,True
-7,HP-TÉL-0007,HP Téléphonie Max 889,Téléphonie,HP,piece,360.43,0.21,436.12,460.52,24,139,36,2023-11-11,True
-8,CA-ACC-0008,Canon Accessoires Pro 674,Accessoires,Canon,piece,170.11,0.33,226.25,275.08,10,76,51,2024-05-27,True
-9,XE-RÉS-0009,Xerox Réseau Standard 878,Réseau,Xerox,piece,51.85,0.21,62.74,72.52,26,94,9,2025-03-25,True
-10,AS-ACC-0010,Asus Accessoires Standard 516,Accessoires,Asus,piece,218.18,0.14,248.73,299.87,36,205,255,2025-04-03,True
-11,BR-ACC-0011,Brother Accessoires Eco 572,Accessoires,Brother,box,388.98,0.23,478.45,604.81,10,66,54,2024-03-03,True
-12,SA-INF-0012,Samsung Informatique Plus 875,Informatique,Samsung,piece,133.86,0.28,171.34,184.16,33,92,9,2024-12-10,True
-13,EP-RÉS-0013,Epson Réseau Standard 598,Réseau,Epson,piece,600.45,0.23,738.55,850.66,23,83,111,2025-04-22,True
-14,DE-ACC-0014,Dell Accessoires Standard 430,Accessoires,Dell,box,712.19,0.23,875.99,941.48,23,186,175,2025-07-23,True
-15,LO-TÉL-0015,Logitech Téléphonie Standard 719,Téléphonie,Logitech,pack,380.33,0.14,433.58,489.49,13,85,134,2024-02-16,True
-16,HP-RÉS-0016,HP Réseau Eco 526,Réseau,HP,piece,124.53,0.1,136.98,183.88,24,102,51,2024-03-09,True
-17,XE-INF-0017,Xerox Informatique Max 438,Informatique,Xerox,piece,53.58,0.21,64.83,69.47,27,219,115,2025-03-01,True
-18,HP-ACC-0018,HP Accessoires Plus 381,Accessoires,HP,pack,657.5,0.31,861.33,1044.69,24,148,159,2023-12-25,True
-19,DE-RÉS-0019,Dell Réseau Standard 654,Réseau,Dell,box,529.2,0.1,582.12,623.04,18,119,45,2025-05-24,True
-20,CA-TÉL-0020,Canon Téléphonie Plus 916,Téléphonie,Canon,box,471.92,0.29,608.78,687.28,22,209,242,2025-07-18,True
-21,HP-BUR-0021,HP Bureautique Plus 321,Bureautique,HP,piece,743.99,0.25,929.99,992.58,35,65,41,2025-11-30,True
-22,EP-INF-0022,Epson Informatique Standard 926,Informatique,Epson,pack,343.2,0.21,415.27,465.04,12,103,143,2025-01-11,True
-23,SA-RÉS-0023,Samsung Réseau Max 463,Réseau,Samsung,pack,671.73,0.17,785.92,821.92,18,90,71,2024-02-20,True
-24,SA-BUR-0024,Samsung Bureautique Standard 552,Bureautique,Samsung,pack,557.6,0.15,641.24,679.51,32,228,178,2025-08-19,True
-25,LO-INF-0025,Logitech Informatique Max 889,Informatique,Logitech,box,280.06,0.19,333.27,407.79,17,144,95,2025-08-18,True
-26,HP-ACC-0026,HP Accessoires Plus 552,Accessoires,HP,pack,423.17,0.08,457.02,512.97,11,135,64,2024-09-21,True
-27,AS-INF-0027,Asus Informatique Eco 134,Informatique,Asus,box,223.59,0.21,270.54,279.87,21,121,160,2025-12-21,True
-28,HP-TÉL-0028,HP Téléphonie Max 722,Téléphonie,HP,box,366.31,0.13,413.93,524.65,39,95,9,2025-02-04,True
-29,AS-INF-0029,Asus Informatique Plus 822,Informatique,Asus,box,145.64,0.31,190.79,199.82,12,56,56,2024-05-06,True
-30,HP-ACC-0030,HP Accessoires Eco 199,Accessoires,HP,box,225.6,0.31,295.54,365.34,6,121,81,2024-02-22,True
-31,AS-BUR-0031,Asus Bureautique Eco 628,Bureautique,Asus,piece,752.73,0.19,895.75,1161.29,8,54,24,2023-10-27,True
-32,EP-TÉL-0032,Epson Téléphonie Eco 185,Téléphonie,Epson,piece,357.5,0.15,411.12,446.3,37,171,44,2024-05-08,True
-33,HP-ACC-0033,HP Accessoires Eco 380,Accessoires,HP,box,283.79,0.17,332.03,400.93,10,184,118,2025-11-19,True
-34,CA-INF-0034,Canon Informatique Plus 847,Informatique,Canon,piece,152.6,0.24,189.22,253.31,15,47,27,2024-05-05,True
-35,LE-CON-0035,Lenovo Consommables Pro 998,Consommables,Lenovo,box,754.87,0.16,875.65,1089.92,17,80,79,2025-12-25,True
-36,DE-RÉS-0036,Dell Réseau Plus 385,Réseau,Dell,piece,454.21,0.19,540.51,700.31,22,103,45,2025-04-21,True
-37,LE-CON-0037,Lenovo Consommables Eco 194,Consommables,Lenovo,pack,287.35,0.18,339.07,432.27,38,183,212,2024-05-12,True
-38,EP-ACC-0038,Epson Accessoires Pro 954,Accessoires,Epson,box,311.62,0.23,383.29,417.6,32,150,165,2023-11-10,True
-39,DE-ACC-0039,Dell Accessoires Plus 450,Accessoires,Dell,box,774.95,0.23,953.19,1206.01,22,75,65,2023-12-19,True
-40,DE-BUR-0040,Dell Bureautique Plus 578,Bureautique,Dell,pack,30.0,0.11,33.3,41.2,16,167,35,2024-10-27,True
-41,LO-TÉL-0041,Logitech Téléphonie Eco 677,Téléphonie,Logitech,pack,528.35,0.32,697.42,785.56,11,202,91,2023-09-11,True
-42,EP-INF-0042,Epson Informatique Max 586,Informatique,Epson,pack,272.65,0.32,359.9,389.32,27,135,41,2024-10-27,True
-43,EP-TÉL-0043,Epson Téléphonie Pro 549,Téléphonie,Epson,box,367.87,0.24,456.16,530.76,30,181,213,2025-06-13,True
-44,LO-CON-0044,Logitech Consommables Standard 445,Consommables,Logitech,pack,544.45,0.16,631.56,846.51,19,178,27,2024-12-13,True
-45,DE-RÉS-0045,Dell Réseau Standard 510,Réseau,Dell,box,27.7,0.22,33.79,44.75,38,118,145,2024-01-10,True
-46,EP-BUR-0046,Epson Bureautique Eco 907,Bureautique,Epson,piece,776.41,0.16,900.64,1146.26,27,174,101,2025-09-01,True
-47,HP-RÉS-0047,HP Réseau Plus 305,Réseau,HP,piece,244.52,0.1,268.97,295.31,18,159,23,2024-02-07,True
-48,EP-BUR-0048,Epson Bureautique Standard 965,Bureautique,Epson,pack,8.93,0.12,10.0,10.53,40,170,178,2025-07-15,True
-49,SA-RÉS-0049,Samsung Réseau Max 823,Réseau,Samsung,piece,611.63,0.11,678.91,721.28,13,145,83,2025-05-04,True
-50,SA-ACC-0050,Samsung Accessoires Standard 503,Accessoires,Samsung,box,61.97,0.21,74.98,94.8,6,92,45,2023-12-24,True
-51,LO-BUR-0051,Logitech Bureautique Eco 448,Bureautique,Logitech,box,659.47,0.24,817.74,1036.94,9,204,58,2025-09-29,True
-52,BR-RÉS-0052,Brother Réseau Pro 316,Réseau,Brother,pack,351.14,0.17,410.83,507.72,32,100,72,2025-04-05,True
-53,LE-RÉS-0053,Lenovo Réseau Pro 367,Réseau,Lenovo,pack,147.72,0.19,175.79,209.32,11,160,206,2025-11-25,True
-54,CA-CON-0054,Canon Consommables Max 922,Consommables,Canon,piece,132.9,0.11,147.52,175.15,34,66,62,2024-04-19,True
-55,SA-ACC-0055,Samsung Accessoires Max 889,Accessoires,Samsung,piece,245.85,0.15,282.73,347.55,33,191,95,2023-12-11,True
-56,LO-RÉS-0056,Logitech Réseau Standard 473,Réseau,Logitech,piece,629.47,0.34,843.49,1008.36,29,79,38,2026-02-10,True
-57,AS-CON-0057,Asus Consommables Eco 302,Consommables,Asus,box,651.2,0.28,833.54,975.36,8,156,72,2026-01-08,True
-58,LE-INF-0058,Lenovo Informatique Max 475,Informatique,Lenovo,piece,711.89,0.27,904.1,997.46,26,131,6,2024-08-11,True
-59,EP-CON-0059,Epson Consommables Eco 465,Consommables,Epson,pack,18.93,0.17,22.15,27.24,12,133,9,2024-08-22,True
-60,SA-ACC-0060,Samsung Accessoires Plus 279,Accessoires,Samsung,piece,430.31,0.11,477.64,509.99,36,176,70,2025-03-01,True
-61,AS-RÉS-0061,Asus Réseau Plus 945,Réseau,Asus,box,657.29,0.23,808.47,835.48,25,150,9,2025-09-20,True
-62,CA-TÉL-0062,Canon Téléphonie Max 624,Téléphonie,Canon,box,67.62,0.33,89.93,113.96,32,164,5,2025-08-13,True
-63,DE-ACC-0063,Dell Accessoires Pro 956,Accessoires,Dell,pack,772.3,0.29,996.27,1203.89,24,211,124,2024-03-09,True
-64,LO-INF-0064,Logitech Informatique Standard 584,Informatique,Logitech,piece,609.77,0.2,731.72,926.7,16,116,128,2024-04-01,True
-65,AS-INF-0065,Asus Informatique Max 285,Informatique,Asus,box,231.51,0.08,250.03,272.12,31,229,66,2025-05-12,True
-66,LE-CON-0066,Lenovo Consommables Standard 909,Consommables,Lenovo,box,257.94,0.14,294.05,301.68,25,111,16,2024-06-01,True
-67,AS-CON-0067,Asus Consommables Max 702,Consommables,Asus,pack,509.64,0.17,596.28,684.76,40,73,43,2025-03-06,True
-68,LO-CON-0068,Logitech Consommables Max 255,Consommables,Logitech,pack,684.21,0.21,827.89,989.86,15,144,65,2025-01-01,True
-69,AS-INF-0069,Asus Informatique Pro 746,Informatique,Asus,pack,451.25,0.17,527.96,574.68,38,162,77,2025-04-25,True
-70,LE-CON-0070,Lenovo Consommables Max 130,Consommables,Lenovo,piece,501.77,0.13,567.0,644.13,32,168,195,2026-01-25,True
-71,XE-CON-0071,Xerox Consommables Max 340,Consommables,Xerox,pack,737.34,0.12,825.82,1007.79,12,66,50,2025-07-09,True
-72,CA-BUR-0072,Canon Bureautique Standard 396,Bureautique,Canon,piece,692.59,0.29,893.44,1201.54,30,200,104,2025-02-22,True
-73,SA-BUR-0073,Samsung Bureautique Standard 385,Bureautique,Samsung,pack,617.55,0.25,771.94,956.59,25,183,137,2024-08-21,True
-74,BR-RÉS-0074,Brother Réseau Max 606,Réseau,Brother,pack,232.6,0.33,309.36,331.57,16,148,73,2026-02-14,True
-75,LO-TÉL-0075,Logitech Téléphonie Max 771,Téléphonie,Logitech,piece,548.26,0.11,608.57,737.25,31,168,105,2025-08-08,True
-76,HP-ACC-0076,HP Accessoires Standard 329,Accessoires,HP,piece,489.72,0.22,597.46,625.28,31,66,41,2024-06-03,True
-77,EP-BUR-0077,Epson Bureautique Standard 740,Bureautique,Epson,pack,549.07,0.34,735.75,755.98,29,200,130,2023-09-17,True
-78,EP-BUR-0078,Epson Bureautique Max 477,Bureautique,Epson,box,700.35,0.13,791.4,1051.97,17,129,33,2025-04-23,True
-79,HP-INF-0079,HP Informatique Plus 691,Informatique,HP,pack,370.06,0.26,466.28,543.87,20,95,118,2024-09-23,True
-80,CA-ACC-0080,Canon Accessoires Standard 957,Accessoires,Canon,pack,698.31,0.33,928.75,1022.37,9,40,4,2024-03-21,True
-81,SA-ACC-0081,Samsung Accessoires Standard 581,Accessoires,Samsung,pack,60.94,0.19,72.52,80.19,39,99,136,2024-02-17,True
-82,LE-INF-0082,Lenovo Informatique Max 947,Informatique,Lenovo,box,52.53,0.3,68.29,88.32,7,130,102,2024-02-15,True
-83,LE-TÉL-0083,Lenovo Téléphonie Max 906,Téléphonie,Lenovo,piece,87.38,0.31,114.47,145.39,12,85,93,2024-12-22,True
-84,LO-ACC-0084,Logitech Accessoires Plus 348,Accessoires,Logitech,pack,172.02,0.11,190.94,235.21,9,156,181,2024-10-02,True
-85,DE-BUR-0085,Dell Bureautique Eco 402,Bureautique,Dell,box,358.51,0.29,462.48,578.5,22,204,9,2023-12-31,True
-86,EP-BUR-0086,Epson Bureautique Standard 395,Bureautique,Epson,piece,180.71,0.18,213.24,243.03,23,131,40,2024-07-16,True
-87,DE-ACC-0087,Dell Accessoires Max 830,Accessoires,Dell,pack,540.26,0.12,605.09,777.97,13,80,74,2023-09-22,True
-88,DE-RÉS-0088,Dell Réseau Plus 128,Réseau,Dell,piece,468.67,0.12,524.91,537.5,28,188,190,2024-09-06,True
-89,LE-RÉS-0089,Lenovo Réseau Standard 274,Réseau,Lenovo,pack,516.86,0.24,640.91,759.71,38,163,96,2023-09-15,True
-90,EP-RÉS-0090,Epson Réseau Standard 593,Réseau,Epson,piece,389.78,0.18,459.94,570.64,9,126,57,2025-04-07,True
-91,BR-BUR-0091,Brother Bureautique Plus 384,Bureautique,Brother,box,623.52,0.29,804.34,992.96,27,184,117,2024-07-14,True
-92,HP-ACC-0092,HP Accessoires Standard 333,Accessoires,HP,box,166.01,0.26,209.17,240.86,11,125,129,2025-12-11,True
-93,XE-CON-0093,Xerox Consommables Standard 966,Consommables,Xerox,box,432.49,0.1,475.74,610.52,33,208,126,2025-06-12,True
-94,EP-CON-0094,Epson Consommables Plus 333,Consommables,Epson,box,575.32,0.13,650.11,873.22,22,193,71,2025-11-16,True
-95,BR-ACC-0095,Brother Accessoires Pro 235,Accessoires,Brother,box,245.69,0.14,280.09,308.24,35,183,25,2024-08-17,True
-96,LO-INF-0096,Logitech Informatique Pro 301,Informatique,Logitech,pack,97.54,0.1,107.29,116.42,39,219,110,2024-06-15,True
-97,DE-RÉS-0097,Dell Réseau Standard 109,Réseau,Dell,box,346.66,0.32,457.59,575.46,33,227,99,2024-06-24,True
-98,AS-ACC-0098,Asus Accessoires Max 100,Accessoires,Asus,pack,604.88,0.24,750.05,886.98,16,130,129,2024-10-11,True
-99,DE-TÉL-0099,Dell Téléphonie Eco 370,Téléphonie,Dell,box,202.97,0.15,233.42,281.32,24,214,225,2025-10-26,True
-100,LE-BUR-0100,Lenovo Bureautique Pro 426,Bureautique,Lenovo,box,379.05,0.12,424.54,442.22,32,139,24,2023-09-19,True
-101,LO-RÉS-0101,Logitech Réseau Standard 942,Réseau,Logitech,piece,158.91,0.11,176.39,193.41,24,182,78,2025-03-27,True
-102,LE-TÉL-0102,Lenovo Téléphonie Pro 801,Téléphonie,Lenovo,pack,742.4,0.14,846.34,1050.92,25,95,49,2023-12-26,True
-103,EP-RÉS-0103,Epson Réseau Plus 724,Réseau,Epson,box,129.92,0.34,174.09,233.94,31,129,58,2025-05-24,True
-104,DE-RÉS-0104,Dell Réseau Eco 248,Réseau,Dell,pack,270.31,0.18,318.97,403.79,33,141,108,2024-07-21,True
-105,SA-RÉS-0105,Samsung Réseau Pro 880,Réseau,Samsung,pack,48.97,0.19,58.27,71.85,13,159,196,2025-05-13,True
-106,BR-INF-0106,Brother Informatique Plus 777,Informatique,Brother,box,208.46,0.3,271.0,278.54,32,159,83,2024-07-26,True
-107,BR-TÉL-0107,Brother Téléphonie Plus 732,Téléphonie,Brother,box,354.88,0.15,408.11,426.3,15,128,122,2024-02-10,True
-108,LE-TÉL-0108,Lenovo Téléphonie Pro 899,Téléphonie,Lenovo,box,315.1,0.34,422.23,529.11,20,121,155,2024-06-27,True
-109,HP-RÉS-0109,HP Réseau Pro 157,Réseau,HP,box,277.44,0.23,341.25,397.41,23,81,120,2025-10-03,True
-110,CA-ACC-0110,Canon Accessoires Eco 893,Accessoires,Canon,box,333.95,0.12,374.02,400.07,24,200,51,2024-07-22,True
-111,LE-INF-0111,Lenovo Informatique Plus 435,Informatique,Lenovo,box,439.54,0.26,553.82,666.63,23,58,17,2023-12-20,True
-112,LO-INF-0112,Logitech Informatique Eco 891,Informatique,Logitech,pack,599.08,0.14,682.95,769.01,19,166,92,2025-03-13,True
-113,DE-BUR-0113,Dell Bureautique Eco 718,Bureautique,Dell,box,746.48,0.12,836.06,1029.98,32,163,206,2024-10-07,True
-114,XE-INF-0114,Xerox Informatique Pro 624,Informatique,Xerox,pack,17.88,0.2,21.46,22.12,37,150,137,2024-10-02,True
-115,AS-CON-0115,Asus Consommables Eco 749,Consommables,Asus,piece,588.87,0.23,724.31,971.66,12,178,40,2023-11-23,True
-116,CA-TÉL-0116,Canon Téléphonie Standard 579,Téléphonie,Canon,box,521.89,0.13,589.74,615.76,32,132,119,2024-11-12,True
-117,EP-ACC-0117,Epson Accessoires Eco 174,Accessoires,Epson,piece,520.03,0.17,608.44,726.57,32,67,51,2024-07-09,True
-118,HP-CON-0118,HP Consommables Standard 948,Consommables,HP,pack,20.0,0.14,22.8,26.47,21,108,149,2024-03-29,True
-119,XE-CON-0119,Xerox Consommables Max 769,Consommables,Xerox,box,164.26,0.3,213.54,283.02,14,92,37,2025-07-21,True
-120,EP-CON-0120,Epson Consommables Pro 126,Consommables,Epson,box,483.53,0.31,633.42,809.02,39,158,17,2025-03-19,True
-121,BR-CON-0121,Brother Consommables Plus 306,Consommables,Brother,pack,134.81,0.35,181.99,199.62,18,138,6,2025-09-30,True
-122,CA-RÉS-0122,Canon Réseau Max 126,Réseau,Canon,pack,694.69,0.31,910.04,990.88,8,152,112,2025-01-05,True
-123,BR-BUR-0123,Brother Bureautique Max 704,Bureautique,Brother,piece,78.82,0.13,89.07,117.7,38,99,41,2024-01-05,True
-124,CA-BUR-0124,Canon Bureautique Max 858,Bureautique,Canon,box,289.92,0.35,391.39,452.84,18,71,102,2024-09-16,True
-125,LE-CON-0125,Lenovo Consommables Eco 620,Consommables,Lenovo,piece,756.19,0.08,816.69,935.44,31,163,25,2025-02-19,True
-126,DE-CON-0126,Dell Consommables Pro 544,Consommables,Dell,box,244.05,0.35,329.47,345.24,29,179,4,2025-05-12,True
-127,LO-ACC-0127,Logitech Accessoires Pro 244,Accessoires,Logitech,piece,146.0,0.08,157.68,187.82,13,163,195,2026-01-09,True
-128,AS-INF-0128,Asus Informatique Plus 987,Informatique,Asus,box,530.46,0.18,625.94,724.16,15,152,44,2025-08-23,True
-129,EP-TÉL-0129,Epson Téléphonie Plus 473,Téléphonie,Epson,piece,630.31,0.09,687.04,747.05,30,220,191,2023-10-10,True
-130,AS-CON-0130,Asus Consommables Eco 129,Consommables,Asus,piece,268.61,0.32,354.57,365.67,14,148,11,2024-08-14,True
-131,AS-RÉS-0131,Asus Réseau Standard 273,Réseau,Asus,piece,84.59,0.17,98.97,108.22,31,77,28,2024-10-18,True
-132,SA-RÉS-0132,Samsung Réseau Standard 550,Réseau,Samsung,piece,686.25,0.3,892.12,910.17,35,185,230,2025-05-30,True
-133,LO-BUR-0133,Logitech Bureautique Standard 474,Bureautique,Logitech,box,536.4,0.11,595.4,704.13,17,79,56,2024-09-08,True
-134,EP-BUR-0134,Epson Bureautique Plus 775,Bureautique,Epson,piece,595.83,0.27,756.7,842.33,11,104,57,2025-06-06,True
-135,DE-BUR-0135,Dell Bureautique Eco 827,Bureautique,Dell,pack,536.34,0.22,654.33,792.04,22,85,83,2024-12-12,True
-136,EP-CON-0136,Epson Consommables Standard 854,Consommables,Epson,piece,599.61,0.3,779.49,957.62,17,93,3,2025-09-24,True
-137,HP-ACC-0137,HP Accessoires Plus 265,Accessoires,HP,pack,261.41,0.23,321.53,379.3,27,105,147,2024-12-29,True
-138,BR-RÉS-0138,Brother Réseau Max 736,Réseau,Brother,pack,438.97,0.11,487.26,541.92,37,153,86,2025-08-11,True
-139,LO-CON-0139,Logitech Consommables Max 890,Consommables,Logitech,box,367.77,0.11,408.22,531.73,38,135,16,2023-12-10,True
-140,SA-CON-0140,Samsung Consommables Pro 656,Consommables,Samsung,piece,80.19,0.34,107.45,139.03,12,182,182,2025-04-21,True
-141,LO-BUR-0141,Logitech Bureautique Eco 563,Bureautique,Logitech,pack,444.87,0.33,591.68,792.19,37,113,101,2023-11-01,True
-142,BR-TÉL-0142,Brother Téléphonie Plus 960,Téléphonie,Brother,box,181.38,0.08,195.89,247.22,27,191,153,2023-12-12,True
-143,AS-BUR-0143,Asus Bureautique Standard 637,Bureautique,Asus,piece,641.21,0.18,756.63,829.3,38,110,95,2025-09-08,True
-144,EP-INF-0144,Epson Informatique Standard 331,Informatique,Epson,box,125.88,0.33,167.42,204.45,17,118,12,2025-01-03,True
-145,SA-CON-0145,Samsung Consommables Standard 531,Consommables,Samsung,pack,377.06,0.12,422.31,561.5,5,54,32,2024-02-23,True
-146,DE-TÉL-0146,Dell Téléphonie Plus 851,Téléphonie,Dell,box,477.22,0.1,524.94,666.26,13,79,123,2023-10-29,True
-147,BR-BUR-0147,Brother Bureautique Max 905,Bureautique,Brother,piece,518.64,0.19,617.18,668.91,27,75,28,2025-05-11,True
-148,SA-BUR-0148,Samsung Bureautique Pro 843,Bureautique,Samsung,box,470.81,0.26,593.22,645.38,14,114,83,2026-02-06,True
-149,CA-ACC-0149,Canon Accessoires Standard 418,Accessoires,Canon,box,86.58,0.25,108.22,127.21,33,139,31,2024-08-12,True
-150,AS-ACC-0150,Asus Accessoires Max 257,Accessoires,Asus,piece,704.78,0.28,902.12,1134.51,22,62,48,2023-10-13,True
-151,CA-CON-0151,Canon Consommables Max 536,Consommables,Canon,box,138.92,0.27,176.43,230.35,36,140,57,2024-08-31,True
-152,CA-INF-0152,Canon Informatique Standard 713,Informatique,Canon,pack,196.83,0.31,257.85,305.09,32,169,14,2024-05-05,True
-153,DE-INF-0153,Dell Informatique Eco 357,Informatique,Dell,box,408.72,0.19,486.38,630.34,27,78,3,2025-11-06,True
-154,LE-ACC-0154,Lenovo Accessoires Plus 699,Accessoires,Lenovo,pack,181.0,0.2,217.2,240.59,36,209,192,2024-06-06,True
-155,SA-TÉL-0155,Samsung Téléphonie Pro 716,Téléphonie,Samsung,piece,474.32,0.29,611.87,816.75,11,71,97,2025-06-18,True
-156,AS-CON-0156,Asus Consommables Standard 531,Consommables,Asus,pack,576.04,0.09,627.88,774.51,33,180,146,2023-09-17,True
-157,HP-TÉL-0157,HP Téléphonie Max 932,Téléphonie,HP,box,596.79,0.2,716.15,945.08,18,193,46,2026-01-24,True
-158,LO-ACC-0158,Logitech Accessoires Pro 399,Accessoires,Logitech,pack,642.51,0.28,822.41,1069.39,21,142,174,2025-03-02,True
-159,BR-CON-0159,Brother Consommables Eco 556,Consommables,Brother,piece,262.99,0.27,334.0,410.65,15,98,142,2023-12-21,True
-160,LO-TÉL-0160,Logitech Téléphonie Max 871,Téléphonie,Logitech,pack,625.87,0.13,707.23,838.03,10,125,90,2024-05-27,True
-161,BR-TÉL-0161,Brother Téléphonie Eco 948,Téléphonie,Brother,pack,85.53,0.27,108.62,133.71,25,214,254,2024-05-04,True
-162,SA-BUR-0162,Samsung Bureautique Plus 371,Bureautique,Samsung,box,390.93,0.17,457.39,532.61,28,98,43,2025-03-24,True
-163,CA-INF-0163,Canon Informatique Plus 695,Informatique,Canon,pack,727.52,0.27,923.95,1113.32,40,207,91,2025-01-06,True
-164,CA-TÉL-0164,Canon Téléphonie Plus 195,Téléphonie,Canon,piece,570.77,0.33,759.12,940.44,21,88,87,2024-08-21,True
-165,SA-CON-0165,Samsung Consommables Plus 494,Consommables,Samsung,piece,676.78,0.28,866.28,1134.16,23,210,42,2025-03-23,True
-166,LE-BUR-0166,Lenovo Bureautique Pro 351,Bureautique,Lenovo,box,128.23,0.35,173.11,178.08,19,105,62,2025-07-01,True
-167,BR-RÉS-0167,Brother Réseau Plus 112,Réseau,Brother,pack,198.73,0.09,216.62,264.72,33,169,142,2024-08-02,True
-168,BR-TÉL-0168,Brother Téléphonie Max 290,Téléphonie,Brother,box,466.81,0.25,583.51,766.29,29,125,93,2023-11-18,True
-169,SA-CON-0169,Samsung Consommables Eco 473,Consommables,Samsung,piece,259.52,0.18,306.23,409.18,13,125,63,2023-11-26,True
-170,AS-TÉL-0170,Asus Téléphonie Plus 198,Téléphonie,Asus,box,568.14,0.22,693.13,730.97,19,138,183,2024-03-01,True
-171,XE-ACC-0171,Xerox Accessoires Plus 576,Accessoires,Xerox,pack,461.54,0.09,503.08,615.87,36,217,223,2025-12-13,True
-172,HP-BUR-0172,HP Bureautique Standard 559,Bureautique,HP,box,521.97,0.32,689.0,811.15,14,60,87,2025-02-20,True
-173,DE-INF-0173,Dell Informatique Standard 358,Informatique,Dell,box,26.92,0.24,33.38,38.79,13,144,55,2024-04-11,True
-174,DE-RÉS-0174,Dell Réseau Standard 813,Réseau,Dell,box,247.21,0.14,281.82,361.71,37,171,36,2023-12-26,True
-175,AS-TÉL-0175,Asus Téléphonie Eco 983,Téléphonie,Asus,piece,776.86,0.09,846.78,1074.54,12,60,78,2025-12-14,True
-176,SA-TÉL-0176,Samsung Téléphonie Plus 850,Téléphonie,Samsung,piece,202.8,0.24,251.47,319.47,16,92,7,2024-04-24,True
-177,CA-RÉS-0177,Canon Réseau Eco 191,Réseau,Canon,piece,757.19,0.23,931.34,1241.64,29,163,97,2024-03-06,True
-178,EP-RÉS-0178,Epson Réseau Eco 287,Réseau,Epson,piece,252.4,0.13,285.21,331.42,21,178,23,2025-08-13,True
-179,SA-CON-0179,Samsung Consommables Plus 332,Consommables,Samsung,pack,788.58,0.25,985.73,1115.95,11,175,65,2026-01-28,True
-180,HP-TÉL-0180,HP Téléphonie Standard 160,Téléphonie,HP,box,301.65,0.13,340.86,456.07,38,71,0,2025-03-20,True
-181,DE-RÉS-0181,Dell Réseau Pro 919,Réseau,Dell,box,452.87,0.31,593.26,792.23,17,209,255,2025-08-15,True
-182,BR-TÉL-0182,Brother Téléphonie Eco 199,Téléphonie,Brother,box,730.53,0.24,905.86,1095.56,33,108,129,2025-09-18,True
-183,HP-RÉS-0183,HP Réseau Standard 139,Réseau,HP,box,711.15,0.29,917.38,972.14,24,128,27,2025-02-25,True
-184,EP-ACC-0184,Epson Accessoires Standard 630,Accessoires,Epson,piece,720.68,0.21,872.02,1063.13,26,172,168,2024-08-05,True
-185,LE-RÉS-0185,Lenovo Réseau Pro 784,Réseau,Lenovo,box,57.04,0.15,65.6,69.97,36,114,103,2026-01-06,True
-186,HP-CON-0186,HP Consommables Max 930,Consommables,HP,box,567.57,0.31,743.52,782.63,38,91,82,2024-08-27,True
-187,AS-TÉL-0187,Asus Téléphonie Standard 634,Téléphonie,Asus,pack,606.75,0.25,758.44,844.33,13,157,195,2025-07-30,True
-188,SA-CON-0188,Samsung Consommables Max 545,Consommables,Samsung,pack,70.5,0.09,76.84,81.02,40,193,156,2025-01-15,True
-189,LE-CON-0189,Lenovo Consommables Eco 889,Consommables,Lenovo,box,560.63,0.22,683.97,707.05,10,118,150,2024-01-14,True
-190,XE-TÉL-0190,Xerox Téléphonie Plus 756,Téléphonie,Xerox,pack,592.71,0.22,723.11,748.84,24,152,48,2025-02-22,True
-191,HP-TÉL-0191,HP Téléphonie Max 856,Téléphonie,HP,box,421.57,0.13,476.37,544.19,7,91,25,2024-11-06,True
-192,BR-BUR-0192,Brother Bureautique Eco 174,Bureautique,Brother,box,166.87,0.14,190.23,234.24,5,46,48,2025-07-22,True
-193,CA-ACC-0193,Canon Accessoires Eco 104,Accessoires,Canon,piece,529.38,0.33,704.08,795.01,16,145,58,2025-02-02,True
-194,HP-RÉS-0194,HP Réseau Plus 245,Réseau,HP,box,200.71,0.26,252.89,331.55,32,208,158,2025-07-23,True
-195,DE-ACC-0195,Dell Accessoires Max 806,Accessoires,Dell,piece,335.63,0.19,399.4,444.04,17,171,64,2024-06-13,True
-196,SA-INF-0196,Samsung Informatique Pro 812,Informatique,Samsung,pack,107.47,0.27,136.49,142.4,12,71,20,2023-11-30,True
-197,CA-RÉS-0197,Canon Réseau Plus 649,Réseau,Canon,pack,138.06,0.28,176.72,235.97,30,132,137,2025-04-30,True
-198,AS-CON-0198,Asus Consommables Eco 211,Consommables,Asus,piece,318.95,0.32,421.01,457.51,10,182,216,2024-09-26,True
-199,EP-BUR-0199,Epson Bureautique Standard 136,Bureautique,Epson,pack,385.66,0.11,428.08,442.01,29,106,21,2023-12-30,True
-200,CA-ACC-0200,Canon Accessoires Plus 546,Accessoires,Canon,box,299.87,0.28,383.83,447.5,7,206,96,2023-12-24,True
+product_id,sku,name,category,brand,current_price,cost_price,margin_rate,current_stock,min_stock,reorder_point,max_stock,lead_time_days,status,competitor_price,product_id_original
+1,1,Produit 1,Laptops,1,1310.0,982.5,0.25,22,2,5,30,7,active,1302.797967403958,1
+12,10,Produit 10,Accessories,10,32.0,24.0,0.25,87,8,15,61,7,active,31.74943422584401,2
+23,11,Produit 11,Accessories,11,79.0,59.25,0.25,63,6,11,46,7,active,78.47417694994179,3
+31,12,Produit 12,Desktops,12,1333.24,999.93,0.25,339,2,5,30,7,active,1328.2581001164144,4
+32,13,Produit 13,Laptops,13,2300.0,1725.0,0.25,12,2,5,30,7,active,2286.837236321304,5
+33,14,Produit 14,Laptops,14,1149.0,861.75,0.25,9,2,5,30,7,active,1143.8280186263096,6
+34,15,Produit 15,Accessories,15,30.0,22.5,0.25,0,3,6,30,7,active,29.78873108265425,7
+35,16,Produit 16,Laptops,16,1900.0,1425.0,0.25,29,2,5,30,7,active,1891.7741792782303,8
+36,17,Produit 17,Network,17,189.0,141.75,0.25,4,2,5,30,7,active,187.50378346915016,9
+2,18,Produit 18,Accessories,18,14.0,10.5,0.25,7,5,10,40,7,active,13.878325960419092,10
+3,19,Produit 19,Monitors,19,200.0,150.0,0.25,14,2,5,30,7,active,199.3603864959255,11
+4,2,Produit 2,Laptops,2,1000.0,750.0,0.25,11,2,5,30,7,active,995.8176833527358,12
+5,20,Produit 20,Printers,20,659.0,494.25,0.25,56,2,5,30,7,active,656.7040675203725,13
+6,21,Produit 21,Printers,21,679.0,509.25,0.25,12,2,5,30,7,active,675.3789173457509,14
+7,22,Produit 22,Laptops,22,1759.0,1319.25,0.25,19,2,5,30,7,active,1750.7906821885915,15
+8,23,Produit 23,Monitors,23,1087.39,815.54,0.25,17,2,5,30,7,active,1084.085122235157,16
+9,24,Produit 24,Laptops,24,1859.0,1394.25,0.25,23,2,5,30,7,active,1850.167175785797,17
+10,25,Produit 25,Laptops,25,1709.0,1281.75,0.25,26,2,5,30,7,active,1699.0302724097787,18
+11,26,Produit 26,Laptops,26,1680.0,1260.0,0.25,34,2,5,30,7,active,1672.1021746216531,19
+13,27,Produit 27,Laptops,27,1539.0,1154.25,0.25,42,2,5,30,7,active,1531.309292200233,20
+14,28,Produit 28,Accessories,28,34.65,25.99,0.25,0,5,10,39,7,active,34.39762747380675,21
+15,29,Produit 29,Desktops,29,3465.93,2599.45,0.25,25,2,5,30,7,active,3452.237206053551,22
+16,3,Produit 3,WearablesAudio,3,120.0,90.0,0.25,0,2,5,30,7,active,119.36718509895226,23
+17,30,Produit 30,Desktops,30,340.91,255.68,0.25,450,2,5,30,7,active,339.7386938300349,24
+18,31,Produit 31,Network,31,99.0,74.25,0.25,43,2,5,30,7,active,98.31551105937136,25
+19,32,Produit 32,Components,32,228.01,171.01,0.25,258,2,5,30,7,active,226.57802328288707,26
+20,33,Produit 33,Components,33,70.0,52.5,0.25,1,2,5,30,7,active,69.60733410942957,27
+21,34,Produit 34,Laptops,34,1690.0,1267.5,0.25,7,2,5,30,7,active,1682.2509662398138,28
+22,35,Produit 35,Laptops,35,1675.0,1256.25,0.25,22,2,5,30,7,active,1664.6287660069847,29
+24,36,Produit 36,Laptops,36,2000.0,1500.0,0.25,74,2,5,30,7,active,1990.3624353899884,30
+25,4,Produit 4,Laptops,4,1699.0,1274.25,0.25,30,2,5,30,7,active,1689.8076228172297,31
+26,5,Produit 5,WearablesAudio,5,190.0,142.5,0.25,32,3,6,30,7,active,189.11228870779976,32
+27,6,Produit 6,WearablesAudio,6,98.0,73.5,0.25,15,2,5,30,7,active,97.3771641443539,33
+28,7,Produit 7,Laptops,7,1100.0,825.0,0.25,11,2,5,30,7,active,1094.6559813736903,34
+29,8,Produit 8,WearablesAudio,8,55.0,41.25,0.25,91,4,8,34,7,active,54.66179511059372,35
+30,9,Produit 9,Laptops,9,1900.0,1425.0,0.25,18,2,5,30,7,active,1889.212151338766,36

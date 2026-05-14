@@ -11,6 +11,7 @@ from zoneinfo import ZoneInfo
 
 from app.services.scraping_service import ScrapingService
 from app.services.stock_client import StockServiceClient
+from app.services.alert_client import AlertClient
 
 
 STATE_FILE = Path("/app/.scheduler/dual_scraping_scheduler.json")
@@ -45,14 +46,21 @@ def _parse_datetime(value: str) -> datetime:
     - 2026-05-05T11:35
     - 2026-05-05T11:35:00
     - 2026-05-05 11:35:00
+    - 2026-05-05T09:00:00Z
 
-    Si le front envoie une date sans timezone, on la considère
-    comme une heure locale du projet : Africa/Tunis.
+    Règle importante :
+    - une date SANS timezone = heure locale métier Africa/Tunis ;
+    - une date AVEC timezone/Z = convertie vers Africa/Tunis.
+
+    Cela évite le bug : l'utilisateur choisit 10h, le front envoie 09h UTC,
+    puis le backend l'enregistre comme 09h locale.
     """
     if not value:
         raise ValueError("run_at est obligatoire.")
 
-    clean = str(value).strip().replace("Z", "")
+    clean = str(value).strip()
+    if clean.endswith("Z"):
+        clean = clean[:-1] + "+00:00"
 
     try:
         parsed = datetime.fromisoformat(clean)
@@ -65,6 +73,129 @@ def _parse_datetime(value: str) -> datetime:
         parsed = parsed.astimezone(_tz()).replace(tzinfo=None)
 
     return parsed
+
+
+def _ensure_future_datetime(dt: datetime) -> None:
+    if dt <= _now():
+        raise ValueError("La date de planification doit être dans le futur.")
+
+
+
+
+def _as_list(value: Any) -> list:
+    if isinstance(value, list):
+        return value
+    return []
+
+
+def _first_value(data: dict, keys: list[str], default=None):
+    if not isinstance(data, dict):
+        return default
+    for key in keys:
+        if key in data and data.get(key) is not None:
+            return data.get(key)
+    return default
+
+
+def _normalize_scraped_row(row: dict, source_type: str = "catalog", parent_product: dict | None = None) -> dict:
+    """
+    Structure unique pour tous les résultats affichés dans le front :
+    - scraping par produit
+    - scraping catalogue manuel/config
+    - scraping catalogue planifié
+    """
+    if not isinstance(row, dict):
+        return {}
+
+    produit_interne = (
+        row.get("produitInterne")
+        or row.get("produit_interne")
+        or row.get("internal_product")
+        or row.get("product")
+        or parent_product
+    )
+
+    produit_scrape = row.get("produitScrape") or row.get("produit_scrape") or {
+        "id": row.get("id"),
+        "nomProduit": _first_value(row, ["nomProduit", "nom_produit", "name", "title"]),
+        "skuConcurrent": _first_value(row, ["skuConcurrent", "sku_concurrent"]),
+        "urlProduit": _first_value(row, ["urlProduit", "url_produit", "url"]),
+        "prixConcurrent": _first_value(row, ["prixConcurrent", "prix_concurrent", "price"]),
+        "ancienPrixConcurrent": _first_value(row, ["ancienPrixConcurrent", "ancien_prix_concurrent", "old_price"]),
+        "isPromo": _first_value(row, ["isPromo", "is_promo"], False),
+        "disponibilite": _first_value(row, ["disponibilite", "availability"]),
+        "concurrent": _first_value(row, ["concurrent", "competitor_name", "concurrentName"]),
+        "concurrentId": _first_value(row, ["concurrentId", "concurrent_id", "competitor_id"]),
+    }
+
+    score = _first_value(row, ["score", "scoreMatching", "score_matching", "match_score"])
+    statut = _first_value(row, ["statut", "statutMatching", "statut_matching", "match_status"], "UNKNOWN")
+
+    try:
+        score_float = float(score) if score is not None else None
+    except Exception:
+        score_float = None
+
+    action_required = (
+        str(statut).upper() in {"MANUAL_REVIEW", "REVIEW", "A_VALIDER"}
+        or (score_float is not None and score_float != 100)
+    )
+
+    return {
+        "id": row.get("id"),
+        "sourceType": source_type,
+        "produitInterne": produit_interne,
+        "produit_interne": produit_interne,
+        "produitScrape": produit_scrape,
+        "produit_scrape": produit_scrape,
+        "concurrent": produit_scrape.get("concurrent") or row.get("concurrent") or row.get("competitor_name"),
+        "concurrentId": produit_scrape.get("concurrentId") or row.get("concurrentId") or row.get("concurrent_id") or row.get("competitor_id"),
+        "score": score_float if score_float is not None else score,
+        "scoreMatching": score_float if score_float is not None else score,
+        "match_score": score_float if score_float is not None else score,
+        "statut": statut,
+        "statutMatching": statut,
+        "match_status": statut,
+        "actionRequired": action_required,
+        "canValidate": action_required,
+        "raw": row,
+    }
+
+
+def _normalize_scraped_rows(rows: list, source_type: str = "catalog", parent_product: dict | None = None) -> list[dict]:
+    normalized: list[dict] = []
+    seen: set[str] = set()
+
+    for row in rows or []:
+        item = _normalize_scraped_row(row, source_type=source_type, parent_product=parent_product)
+        if not item:
+            continue
+        key = str(item.get("id") or item.get("produitScrape", {}).get("urlProduit") or len(normalized))
+        if key in seen:
+            continue
+        seen.add(key)
+        normalized.append(item)
+
+    return normalized
+
+
+def _extract_catalog_items(result: dict) -> list[dict]:
+    if not isinstance(result, dict):
+        return []
+
+    rows: list[dict] = []
+    rows.extend(_as_list(result.get("items")))
+    rows.extend(_as_list(result.get("scraped_items")))
+    rows.extend(_as_list(result.get("scraped_products")))
+    rows.extend(_as_list(result.get("saved_items")))
+
+    for child in _as_list(result.get("results")):
+        rows.extend(_as_list(child.get("items")))
+        rows.extend(_as_list(child.get("scraped_items")))
+        rows.extend(_as_list(child.get("scraped_products")))
+        rows.extend(_as_list(child.get("saved_items")))
+
+    return _normalize_scraped_rows(rows, source_type="catalog")
 
 
 def _normalize_ids(values: list[int] | None) -> list[int]:
@@ -181,6 +312,7 @@ class DualScrapingScheduler:
         fast: bool = True,
         debug: bool = False,
         title: str | None = None,
+        allow_past: bool = False,
     ) -> dict:
         ids = _normalize_ids(product_ids)
 
@@ -188,6 +320,8 @@ class DualScrapingScheduler:
             raise ValueError("Sélectionne au moins un produit à scraper.")
 
         dt = _parse_datetime(run_at)
+        if not allow_past:
+            _ensure_future_datetime(dt)
 
         job_id = str(uuid.uuid4())[:8]
 
@@ -257,6 +391,7 @@ class DualScrapingScheduler:
             fast=fast,
             debug=debug,
             title="Scraping immédiat produits sélectionnés",
+            allow_past=True,
         )
 
         self._launch_product_job_thread(job["id"])
@@ -284,6 +419,7 @@ class DualScrapingScheduler:
     def _run_product_job(self, job_id: str):
         stock_client = StockServiceClient()
         scraper = ScrapingService()
+        alerts = AlertClient()
 
         try:
             with self.lock:
@@ -344,6 +480,12 @@ class DualScrapingScheduler:
                         )
 
                     summary = result.get("summary", {}) or {}
+                    scraped_products = result.get("scraped_products", []) or result.get("saved_items", []) or []
+                    validation_items = _normalize_scraped_rows(
+                        scraped_products,
+                        source_type="product",
+                        parent_product=product,
+                    )
 
                     item = {
                         "product_id": product_id,
@@ -355,6 +497,10 @@ class DualScrapingScheduler:
                         "manual_review": summary.get("manualReview", 0),
                         "matched": summary.get("matched", 0),
                         "ignored": summary.get("ignored", 0),
+                        "scraped_products": scraped_products,
+                        "saved_items": scraped_products,
+                        "validation_items": validation_items,
+                        "items": validation_items,
                     }
 
                     with self.lock:
@@ -380,11 +526,20 @@ class DualScrapingScheduler:
                         job["items"].append(item)
                         self._save()
 
+            final_job = None
             with self.lock:
                 job = self.state["product_jobs"][job_id]
                 job["status"] = "DONE" if job["failed"] == 0 else "DONE_WITH_ERRORS"
                 job["finished_at"] = _iso(_now())
+                all_scraped_items = []
+                for product_item in job.get("items", []) or []:
+                    all_scraped_items.extend(product_item.get("validation_items", []) or product_item.get("items", []) or [])
+                job["scraped_items"] = all_scraped_items
+                job["validation_items"] = [item for item in all_scraped_items if item.get("actionRequired") or item.get("canValidate")]
+                final_job = dict(job)
                 self._save()
+
+            alerts.product_job_success(job=final_job or {})
 
         except Exception as exc:
             with self.lock:
@@ -395,6 +550,8 @@ class DualScrapingScheduler:
                     job["finished_at"] = _iso(_now())
                     job["error"] = str(exc)
                     self._save()
+
+            alerts.product_job_error(job_id=job_id, error=str(exc))
 
         finally:
             with self.lock:
@@ -487,6 +644,7 @@ class DualScrapingScheduler:
         competitor_id_override: int | None = None,
     ):
         scraper = ScrapingService()
+        alerts = AlertClient()
 
         try:
             with self.lock:
@@ -499,6 +657,11 @@ class DualScrapingScheduler:
                 )
 
             result = scraper.scrape_due_or_all(competitor_id=competitor_id)
+            normalized_items = _extract_catalog_items(result)
+            if isinstance(result, dict):
+                result["items"] = normalized_items
+                result["scraped_items"] = normalized_items
+                result["validation_items"] = [item for item in normalized_items if item.get("actionRequired") or item.get("canValidate")]
 
             with self.lock:
                 config = self.state["catalog_frequency"]
@@ -511,6 +674,9 @@ class DualScrapingScheduler:
                     "status": "DONE",
                     "finished_at": _iso(_now()),
                     "result": result,
+                    "items": normalized_items,
+                    "scraped_items": normalized_items,
+                    "validation_items": [item for item in normalized_items if item.get("actionRequired") or item.get("canValidate")],
                 }
 
                 config["runs_history"] = [
@@ -527,6 +693,8 @@ class DualScrapingScheduler:
                     )
 
                 self._save()
+
+            alerts.catalog_success(trigger=trigger, result=result)
 
         except Exception as exc:
             with self.lock:
@@ -556,6 +724,8 @@ class DualScrapingScheduler:
                     )
 
                 self._save()
+
+            alerts.catalog_error(trigger=trigger, error=str(exc))
 
         finally:
             with self.lock:

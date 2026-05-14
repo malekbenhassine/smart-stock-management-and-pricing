@@ -81,19 +81,38 @@ def get_stock_details_service(product_id: int, db: Session) -> dict:
     stock_risk = predict_stock_risk_service(product_id, db)
     anomalies = detect_anomalies_service(product_id, db)
 
+    predicted_demand = getattr(demand, "predicted_demand", 0.0)
+    history_days_used = getattr(
+        demand,
+        "history_days_used",
+        getattr(demand, "history_days", 0)
+    )
+
+    confidence_low = getattr(
+        demand,
+        "confidence_low",
+        round(predicted_demand * 0.85, 2)
+    )
+
+    confidence_high = getattr(
+        demand,
+        "confidence_high",
+        round(predicted_demand * 1.15, 2)
+    )
+
     demand_prediction = {
         "enabled": True,
         "status": "OK",
-        "p10": demand.confidence_low,
-        "p50": demand.predicted_demand,
-        "p90": demand.confidence_high,
-        "history_days_used": demand.history_days_used,
+        "p10": confidence_low,
+        "p50": predicted_demand,
+        "p90": confidence_high,
+        "history_days_used": history_days_used,
         "required_history_days": history_status["required_history_days"],
         "explanation": build_demand_explanation(
-            predicted_demand=demand.predicted_demand,
-            history_days_used=demand.history_days_used,
+            predicted_demand=predicted_demand,
+            history_days_used=history_days_used,
         ),
-    }
+    } 
 
     restock_recommendation = {
         "enabled": True,

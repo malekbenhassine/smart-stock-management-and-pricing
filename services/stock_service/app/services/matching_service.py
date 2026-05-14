@@ -557,12 +557,14 @@ def match_status(score: float, details: dict | None = None) -> str:
     if match_type == "MEDIUM_CONFIDENCE":
         return "MANUAL_REVIEW"
 
-    # FIX: Si match_type absent ou NO_MATCH, on se rabat sur le score numérique
+    # Sécurité anti-faux match :
+    # si le moteur dit NO_MATCH/absence de preuve, on ne transforme plus
+    # automatiquement un score numérique 75 en MATCHED.
+    # Le score seul peut être trompé par des mots génériques.
     if match_type in {None, "NO_MATCH"}:
-        if score >= SCORE_AUTO:
-            return "MATCHED"
         if score >= SCORE_MANUAL:
             return "MANUAL_REVIEW"
+        return "IGNORED"
 
     return "IGNORED"
 

@@ -52,10 +52,13 @@ class StockServiceClient:
                 "total_received": 0,
                 "inserted": 0,
                 "updated": 0,
+                "matched": 0,
                 "manual_review": 0,
                 "ignored": 0,
                 "invalid": 0,
                 "manual_items": [],
+                "saved_items": [],
+                "scraped_products": [],
             }
 
         totals = {
@@ -63,10 +66,13 @@ class StockServiceClient:
             "total_received": 0,
             "inserted": 0,
             "updated": 0,
+            "matched": 0,
             "manual_review": 0,
             "ignored": 0,
             "invalid": 0,
             "manual_items": [],
+            "saved_items": [],
+            "scraped_products": [],
         }
 
         for i in range(0, len(items), chunk_size):
@@ -91,10 +97,13 @@ class StockServiceClient:
             totals["total_received"] += int(result.get("total_received", 0) or 0)
             totals["inserted"] += int(result.get("inserted", 0) or 0)
             totals["updated"] += int(result.get("updated", 0) or 0)
+            totals["matched"] += int(result.get("matched", 0) or 0)
             totals["manual_review"] += int(result.get("manual_review", 0) or 0)
             totals["ignored"] += int(result.get("ignored", 0) or 0)
             totals["invalid"] += int(result.get("invalid", 0) or 0)
             totals["manual_items"].extend(result.get("manual_items", []) or [])
+            totals["saved_items"].extend(result.get("saved_items", []) or result.get("scraped_products", []) or [])
+            totals["scraped_products"] = totals["saved_items"]
 
         return totals
 

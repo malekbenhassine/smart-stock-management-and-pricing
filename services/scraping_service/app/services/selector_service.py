@@ -145,7 +145,7 @@ def _clean_text(value: str) -> str:
 
 def _looks_like_price_text(text: str) -> bool:
     """
-    FIX : détecte les prix tunisiens avec OU sans symbole monétaire.
+   détecte les prix tunisiens avec OU sans symbole monétaire.
     Exemples valides : '1299,000', '2 799.000', '1299 TND', '3 499 DT'
     """
     if not text:
@@ -169,14 +169,14 @@ def _score_selector_nodes(key: str, nodes) -> int:
                 score += 1
             if _looks_like_price_text(text):
                 score += 2
-            # FIX : bonus si la card contient un lien (indicateur fiable)
+            #bonus si la card contient un lien (indicateur fiable)
             if node.select_one("a[href]"):
                 score += 1
 
         elif key == "product_name":
             if 8 <= len(text) <= 180:
                 score += 2
-            # FIX : tokens élargis aux marques et termes informatique tunisien courants
+            # tokens élargis aux marques et termes informatique tunisien courants
             if any(tok in text.lower() for tok in [
                 "pc", "portable", "laptop", "hp", "dell", "lenovo",
                 "asus", "acer", "iphone", "samsung", "écran", "ecran",

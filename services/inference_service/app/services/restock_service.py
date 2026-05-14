@@ -5,16 +5,18 @@ from app.schemas import BaseRequest, RestockResponse
 from app.services.demand_service import forecast_demand_service
 from app.services.stock_client import get_recent_history_from_stock_service
 
-MIN_HISTORY_DAYS_FOR_ML = 14
+OBSERVATION_WINDOW_DAYS = 30
+FORECAST_HORIZON_DAYS = 7
+SALE_MOVEMENT_JUSTIFICATIONS = {"VENTE_CLIENT", "COMMANDE_CLIENT_LIVREE"}
 
 
-def _recent_sales(db: Session, req: BaseRequest, limit: int = 30):
+def _recent_sales(db: Session, req: BaseRequest, limit: int = 365):
     return get_recent_history_from_stock_service(product_id=req.product_id, limit=limit)
 
 
 def _safe_float(value, default: float = 0.0) -> float:
     try:
-        if value is None:
+        if value is None or value == "":
             return default
         return float(value)
     except (TypeError, ValueError):
@@ -23,24 +25,24 @@ def _safe_float(value, default: float = 0.0) -> float:
 
 def _fallback_weekly_demand(req: BaseRequest, history_rows) -> float:
     """
-    Fallback si forecast_demand_service échoue.
-    Ici on retourne une demande hebdomadaire, pas journalière.
+    Fallback en unités / 7 jours.
+
+    Correction : avant, on faisait parfois une moyenne seulement sur les jours avec vente.
+    Maintenant, on divise par une fenêtre de 30 jours pour rester cohérent avec le bloc KPI.
     """
-    values = []
+    total_sales = 0.0
 
     for row in history_rows or []:
-        sales = row.get("sales")
-        if sales is not None:
-            values.append(_safe_float(sales))
+        if row.get("sales") is not None:
+            total_sales += max(0.0, _safe_float(row.get("sales")))
 
-    if values:
-        avg_daily_sales = sum(values) / len(values)
-        return round(avg_daily_sales * 7, 1)
+    if total_sales > 0:
+        return round((total_sales / OBSERVATION_WINDOW_DAYS) * FORECAST_HORIZON_DAYS, 2)
 
     threshold_min = _safe_float(req.threshold_min)
 
     if threshold_min > 0:
-        return round(threshold_min, 1)
+        return round(max(1.0, threshold_min / 2.0), 2)
 
     return 1.0
 
@@ -73,14 +75,14 @@ def _build_reasoning(
     if restock_needed:
         return (
             f"Réassort recommandé : le stock actuel est de {current_stock:.0f} unité(s), "
-            f"la demande prévue est de {weekly_demand:.1f} unité(s) sur la prochaine semaine, "
+            f"la demande prévue est de {weekly_demand:.1f} unité(s) sur les 7 prochains jours, "
             f"et le point de commande est estimé à {reorder_point:.0f} unité(s). "
             f"Commander {recommended_qty:.0f} unité(s) pour revenir vers le niveau cible."
         )
 
     return (
         f"Aucun réassort nécessaire : le stock actuel est de {current_stock:.0f} unité(s), "
-        f"la demande prévue est de {weekly_demand:.1f} unité(s) sur la prochaine semaine, "
+        f"la demande prévue est de {weekly_demand:.1f} unité(s) sur les 7 prochains jours, "
         f"avec une couverture estimée à {weeks_remaining:.2f} semaine(s). "
         f"Le stock est supérieur au seuil minimum de {threshold_min:.0f} unité(s)."
     )
@@ -91,7 +93,7 @@ def recommend_restock_service(req: BaseRequest, db: Session) -> RestockResponse:
     threshold_min = _safe_float(req.threshold_min)
     threshold_max = _safe_float(req.threshold_max)
 
-    history_rows = _recent_sales(db, req, limit=30)
+    history_rows = _recent_sales(db, req, limit=365)
 
     try:
         demand_result = forecast_demand_service(req, db)
@@ -160,7 +162,7 @@ def recommend_restock_service(req: BaseRequest, db: Session) -> RestockResponse:
         product_id=req.product_id,
         date=req.date,
         current_stock=current_stock,
-        predicted_demand=round(weekly_demand, 1),
+        predicted_demand=round(weekly_demand, 2),
         restock_needed=restock_needed,
         recommended_order_qty=round(recommended_qty, 0),
         days_of_stock_remaining=days_remaining,

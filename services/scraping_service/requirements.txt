@@ -4,3 +4,4 @@ requests
 beautifulsoup4
 lxml
 pydantic
+httpx==0.28.1

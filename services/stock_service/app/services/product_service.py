@@ -5,13 +5,14 @@ from datetime import datetime, timedelta
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
 from sqlalchemy import or_
-
-from app.models.tables import Product, ProductCompetitor, SalesHistory
+from app.services.manager_service import enregistrer_activite
+from app.models.tables import Product, ProductCompetitor, SalesHistory, DemandeModificationPrix
 from app.services.price_recommendation_service import calculate_price_recommendation
 from app.services.stock_movement_service import (
     estimate_demand_from_movements,
     record_stock_trace_only,
 )
+from app.services.manager_service import enregistrer_activite
 logger = logging.getLogger(__name__)
 
 STATUT_PRIX_EN_ATTENTE = "EN_ATTENTE_PRICING"
@@ -167,7 +168,10 @@ def get_product_stock_details_service(product_id: int, db: Session):
 
     # Cas important :
     # Si le produit est nouveau et n'a pas encore d'historique de ventes,
-    # on utilise les mouvements de stock comme signal faible de demande.
+    # on utilise UNIQUEMENT les sorties de stock justifiées comme ventes client.
+    # Les casses, pertes, transferts et corrections ne doivent pas créer une fausse demande.
+    movement_demand = {"source": "none"}
+
     if not history_rows:
         movement_demand = estimate_demand_from_movements(
             product_id=p.id,
@@ -175,11 +179,11 @@ def get_product_stock_details_service(product_id: int, db: Session):
             days=analysis_days,
         )
 
-    if movement_demand["source"] == "mouvement_stock":
+    if movement_demand.get("source") == "mouvement_stock_vente_client":
         avg_daily_sales = movement_demand["avg_daily_output"]
         weekly_forecast = movement_demand["weekly_forecast"]
         total_sales = movement_demand["total_output"]
-        demand_source = "mouvement_stock"
+        demand_source = "mouvement_stock_vente_client"
 
     stock_coverage_days = None
     if avg_daily_sales > 0:
@@ -367,7 +371,25 @@ def create_product_service(payload, db: Session):
     db.add(obj)
     db.commit()
     db.refresh(obj)
-
+    enregistrer_activite(
+        db=db,
+        role_utilisateur="RESPONSABLE_STOCK",
+        nom_utilisateur="Responsable stock",
+        type_action="CREATION_PRODUIT",
+        type_entite="PRODUIT",
+        entite_id=obj.id,
+        produit_id=obj.id,
+        description=f"Création du produit : {obj.nom}",
+        donnees={
+            "sku": obj.sku,
+            "nom": obj.nom,
+            "categorie": obj.categorie,
+            "marque": obj.marque,
+            "prixVente": obj.prix_vente,
+            "stockDisponible": obj.stock_disponible,
+        },
+    )
+    db.commit()
     initial_stock = _safe_int(obj.stock_disponible, 0)
 
     if initial_stock > 0:
@@ -486,40 +508,107 @@ def update_product_price_service(product_id: int, new_price: float, justificatio
     if new_price is None or new_price < 0:
         raise HTTPException(status_code=400, detail="Le nouveau prix doit être >= 0")
 
-    old_price = product.prix_vente
-    variation_percent = None
-    justification_required = False
+    old_price = float(product.prix_vente or 0)
+    if old_price <= 0:
+        variation_percent = 100.0
+    else:
+        variation_percent = ((float(new_price) - old_price) / old_price) * 100
 
-    if old_price is not None:
-        variation_percent = abs((new_price - old_price) / old_price * 100) if old_price != 0 else 100.0
-        justification_required = variation_percent >= 50
+    justification_clean = justification.strip() if justification else None
 
-    if justification_required and not (justification and justification.strip()):
-        raise HTTPException(
-            status_code=400,
-            detail="Une justification est obligatoire pour une variation >= 50%",
+    if abs(variation_percent) >= 50:
+        if not justification_clean:
+            raise HTTPException(
+                status_code=400,
+                detail="Une justification est obligatoire pour une variation de prix supérieure ou égale à ±50%.",
+            )
+
+        demande = DemandeModificationPrix(
+            produit_id=product.id,
+            ancien_prix=old_price,
+            nouveau_prix=float(new_price),
+            variation_pourcentage=round(variation_percent, 2),
+            justification=justification_clean,
+            source_recommandation="PRICING",
+            strategie="competitive",
+            statut="EN_ATTENTE_MANAGER",
+            demande_par="RESPONSABLE_PRICING",
+        )
+        db.add(demande)
+        db.flush()
+
+        product.statut_prix = "EN_ATTENTE_MANAGER"
+        product.note_validation_prix = justification_clean
+
+        enregistrer_activite(
+            db,
+            role_utilisateur="PRICING",
+            type_action="DEMANDE_MODIFICATION_PRIX",
+            type_entite="DEMANDE_MODIFICATION_PRIX",
+            entite_id=demande.id,
+            produit_id=product.id,
+            description=f"Le responsable pricing a demandé une modification du prix de {old_price} à {new_price} pour le produit {product.nom}. Validation manager obligatoire car variation = {round(variation_percent, 2)}%.",
+            donnees={
+                "ancienPrix": old_price,
+                "nouveauPrix": float(new_price),
+                "variationPourcentage": round(variation_percent, 2),
+                "justification": justification_clean,
+            },
         )
 
-    product.prix_vente = new_price
-    if hasattr(product, "statut_prix"):
-        product.statut_prix = PRIX_VALIDE
-    if hasattr(product, "date_validation_prix"):
-        product.date_validation_prix = datetime.utcnow()
-    if hasattr(product, "note_validation_prix"):
-        product.note_validation_prix = justification.strip() if justification else None
+        db.commit()
+        db.refresh(demande)
+        db.refresh(product)
+
+        return {
+            "status": "EN_ATTENTE_MANAGER",
+            "message": "La variation du prix dépasse ±50%. La demande a été envoyée au manager pour validation.",
+            "demandeId": demande.id,
+            "product": serialize_product(product),
+            "oldPrixVente": old_price,
+            "newPrixVente": float(new_price),
+            "variationPercent": round(variation_percent, 2),
+            "managerValidationRequired": True,
+            "justificationRequired": True,
+            "justificationProvided": True,
+            "justification": justification_clean,
+        }
+
+    product.prix_vente = float(new_price)
+    product.statut_prix = PRIX_VALIDE
+    product.date_validation_prix = datetime.utcnow()
+    product.note_validation_prix = justification_clean
+
+    enregistrer_activite(
+        db,
+        role_utilisateur="PRICING",
+        type_action="VALIDATION_PRIX_DIRECTE",
+        type_entite="PRODUIT",
+        entite_id=product.id,
+        produit_id=product.id,
+        description=f"Le responsable pricing a validé directement le prix du produit {product.nom} : {old_price} → {new_price}.",
+        donnees={
+            "ancienPrix": old_price,
+            "nouveauPrix": float(new_price),
+            "variationPourcentage": round(variation_percent, 2),
+            "justification": justification_clean,
+        },
+    )
 
     db.commit()
     db.refresh(product)
 
     return {
-        "message": "Prix validé avec succès",
+        "status": "PRIX_VALIDE",
+        "message": "Prix validé directement avec succès.",
         "product": serialize_product(product),
         "oldPrixVente": old_price,
-        "newPrixVente": new_price,
-        "variationPercent": round(variation_percent, 2) if variation_percent is not None else None,
-        "justificationRequired": justification_required,
-        "justificationProvided": bool(justification and justification.strip()),
-        "justification": justification.strip() if justification else None,
+        "newPrixVente": float(new_price),
+        "variationPercent": round(variation_percent, 2),
+        "managerValidationRequired": False,
+        "justificationRequired": False,
+        "justificationProvided": bool(justification_clean),
+        "justification": justification_clean,
     }
 
 

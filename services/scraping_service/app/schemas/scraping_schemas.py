@@ -77,8 +77,16 @@ class ScrapeSummary(BaseModel):
     produits_bruts: int
     produits_uniques: int
     produits_enregistres: int
+    produits_matches: int = 0
+    produits_a_valider: int = 0
+    produits_ignores: int = 0
+    produits_invalides: int = 0
+    inserted: int = 0
+    updated: int = 0
     catalog_details: List[CatalogScrapeDetail] = Field(default_factory=list)
     errors: List[str] = Field(default_factory=list)
+    scraped_products: List[Dict[str, Any]] = Field(default_factory=list)
+    saved_items: List[Dict[str, Any]] = Field(default_factory=list)
     
 
 class ProductScheduleCreate(BaseModel):

@@ -30,6 +30,10 @@ from app.services.product_service import (
 )
 from app.services.price_recommendation_service import calculate_price_recommendation
 from app.services.scraping_client import ScrapingServiceClient
+from app.services.elimination_recommendation_service import (
+    get_product_elimination_recommendation_service,
+    list_elimination_recommendations_service,
+)
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/products", tags=["products"])
@@ -302,6 +306,25 @@ def get_pending_pricing_products(db: Session = Depends(get_db)):
     return get_pending_pricing_products_service(db)
 
 
+@router.get("/recommendations/elimination")
+def get_elimination_recommendations(
+    observation_days: int = 180,
+    min_weekly_demand: float = 1.0,
+    replacement_limit: int = 3,
+    only_candidates: bool = False,
+    limit: int = 100,
+    db: Session = Depends(get_db),
+):
+    return list_elimination_recommendations_service(
+        db=db,
+        observation_days=observation_days,
+        min_weekly_demand=min_weekly_demand,
+        replacement_limit=replacement_limit,
+        only_candidates=only_candidates,
+        limit=limit,
+    )
+
+
 @router.get("/{product_id}")
 def get_product_by_id(product_id: int, db: Session = Depends(get_db)):
     return get_product_by_id_service(product_id, db)
@@ -352,6 +375,23 @@ def get_product_pricing_details(product_id: int, db: Session = Depends(get_db)):
 @router.get("/{product_id}/stock-details")
 def get_product_stock_details(product_id: int, db: Session = Depends(get_db)):
     return get_product_stock_details_service(product_id, db)
+
+
+@router.get("/{product_id}/elimination-recommendation")
+def get_product_elimination_recommendation(
+    product_id: int,
+    observation_days: int = 180,
+    min_weekly_demand: float = 1.0,
+    replacement_limit: int = 3,
+    db: Session = Depends(get_db),
+):
+    return get_product_elimination_recommendation_service(
+        product_id=product_id,
+        db=db,
+        observation_days=observation_days,
+        min_weekly_demand=min_weekly_demand,
+        replacement_limit=replacement_limit,
+    )
 
 
 @router.get("/{product_id}/kpis")

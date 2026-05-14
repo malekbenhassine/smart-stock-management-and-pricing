@@ -1,163 +1,190 @@
-from datetime import date
+from dataclasses import dataclass
+from typing import Any, Optional
 import os
-
+from datetime import date
 from app.schemas import BaseRequest
-from app.services.stock_client import get_latest_sales_date_from_stock_service
-
-DEFAULT_STORE_ID = os.getenv("DEFAULT_STORE_ID", "STORE_Nord")
-DEFAULT_REGION = os.getenv("DEFAULT_REGION", "UNKNOWN")
 
 
-def infer_peak_season_from_category(category: str | None) -> str | None:
-    if not category:
-        return None
-
-    cat = category.strip().lower()
-
-    mapping = {
-        "laptops": "Autumn",
-        "desktops": "Autumn",
-        "gpu": "Autumn",
-        "cpu": "Autumn",
-        "mémoire ram": "Autumn",
-        "moniteurs": "Autumn",
-        "périphériques": "AllSeason",
-        "réseaux": "AllSeason",
-        "stockage": "AllSeason",
-        "câbles & accessoires": "AllSeason",
-        "claviers & souris": "AllSeason",
-    }
-
-    return mapping.get(cat)
+DEFAULT_STORE_ID = os.getenv("DEFAULT_STORE_ID", "S001")
+DEFAULT_REGION = os.getenv("DEFAULT_REGION", "Tunis")
+DEFAULT_WEATHER = os.getenv("DEFAULT_WEATHER", "Sunny")
+DEFAULT_SEASONALITY = os.getenv("DEFAULT_SEASONALITY", "Regular")
 
 
-def compute_seasonality_factor(peak_season: str | None, current_date: date) -> float:
-    month = current_date.month
-
-    current_season = {
-        12: "Winter",
-        1: "Winter",
-        2: "Winter",
-        3: "Spring",
-        4: "Spring",
-        5: "Spring",
-        6: "Summer",
-        7: "Summer",
-        8: "Summer",
-        9: "Autumn",
-        10: "Autumn",
-        11: "Autumn",
-    }[month]
-
-    if not peak_season:
-        return 1.0
-
-    if peak_season == current_season:
-        return 1.10
-
-    return 0.92
+@dataclass
+class DemandRequest:
+    product_id: Any
+    sku: Optional[str] = None
+    name: Optional[str] = None
+    category: str = "Accessories"
+    brand: Optional[str] = None
+    price: float = 0.0
+    stock: float = 0.0
+    discount: float = 0.0
+    competitor_pricing: float = 0.0
+    units_ordered: float = 0.0
+    store_id: str = DEFAULT_STORE_ID
+    region: str = DEFAULT_REGION
+    weather_condition: str = DEFAULT_WEATHER
+    holiday_promotion: int = 0
+    seasonality: str = DEFAULT_SEASONALITY
 
 
-def _safe_float(value, default: float = 0.0) -> float:
+def _safe_float(value: Any, default: float = 0.0) -> float:
     try:
         if value is None:
             return default
         return float(value)
-    except (TypeError, ValueError):
+    except Exception:
         return default
 
 
-def _resolve_target_date(product_id: str, product: dict) -> date:
+def _pick(obj: Any, *names: str, default=None):
+    if obj is None:
+        return default
+
+    if isinstance(obj, dict):
+        for name in names:
+            if name in obj and obj[name] is not None:
+                return obj[name]
+        return default
+
+    for name in names:
+        if hasattr(obj, name):
+            value = getattr(obj, name)
+            if value is not None:
+                return value
+
+    return default
+
+
+def normalize_category(raw: Any) -> str:
+    value = str(raw or "").lower()
+
+    if any(k in value for k in ["pc portable", "laptop", "notebook", "expertbook", "vivobook"]):
+        return "Laptops"
+    if any(k in value for k in ["souris", "clavier", "accessoire", "mouse", "keyboard", "casque"]):
+        return "Accessories"
+    if any(k in value for k in ["routeur", "wifi", "switch", "network"]):
+        return "Network"
+    if any(k in value for k in ["imprimante", "printer"]):
+        return "Printers"
+    if any(k in value for k in ["ecran", "écran", "monitor"]):
+        return "Monitors"
+    if any(k in value for k in ["desktop", "bureau"]):
+        return "Desktops"
+    if any(k in value for k in ["ram", "ssd", "disque", "component"]):
+        return "Components"
+    if any(k in value for k in ["montre", "watch", "audio", "wearable"]):
+        return "WearablesAudio"
+
+    return "Accessories"
+
+
+def build_demand_request(product: Any, context: dict | None = None) -> DemandRequest:
     """
-    Correction importante :
-    Avant : target_date = date.today()
-    Problème : si le dataset s'arrête à 2024, le modèle cherche en 2026 et plante.
+    Construit une requête propre pour le modèle depuis un produit stock_service.
 
-    Maintenant :
-    - si le produit contient déjà une date, on la respecte ;
-    - sinon on récupère la dernière date réelle disponible dans sales_history ;
-    - sinon seulement, on utilise la date du jour comme fallback.
+    Compatible dict ou objet ORM/Pydantic.
     """
+    context = context or {}
 
-    raw_date = product.get("date") or product.get("target_date")
+    sku = _pick(product, "sku", "reference", "code", default=None)
+    product_id = _pick(product, "id", "product_id", default=sku)
 
-    if raw_date:
-        try:
-            if isinstance(raw_date, date):
-                return raw_date
-            return date.fromisoformat(str(raw_date)[:10])
-        except ValueError:
-            pass
+    price = _safe_float(
+        _pick(product, "prix_vente", "prixVente", "prixVenteTTC", "price", "current_price", default=0)
+    )
+    stock = _safe_float(
+        _pick(product, "stock_disponible", "stockDisponible", "stock", "current_stock", "quantite", default=0)
+    )
 
-    latest_date = get_latest_sales_date_from_stock_service(product_id)
+    competitor_pricing = _safe_float(
+        context.get("competitor_pricing"),
+        default=price
+    )
 
-    if latest_date:
-        try:
-            return date.fromisoformat(str(latest_date)[:10])
-        except ValueError:
-            pass
-
-    return date.today()
-
-
+    return DemandRequest(
+        product_id=product_id,
+        sku=str(sku) if sku else None,
+        name=_pick(product, "nom", "name", default=None),
+        category=normalize_category(_pick(product, "categorie", "category", default="Accessories")),
+        brand=_pick(product, "marque", "brand", default=None),
+        price=price,
+        stock=stock,
+        discount=_safe_float(context.get("discount"), 0.0),
+        competitor_pricing=competitor_pricing if competitor_pricing > 0 else price,
+        units_ordered=_safe_float(context.get("units_ordered"), 0.0),
+        store_id=str(context.get("store_id") or DEFAULT_STORE_ID),
+        region=str(context.get("region") or DEFAULT_REGION),
+        weather_condition=str(context.get("weather_condition") or DEFAULT_WEATHER),
+        holiday_promotion=int(_safe_float(context.get("holiday_promotion"), 0)),
+        seasonality=str(context.get("seasonality") or DEFAULT_SEASONALITY),
+    )
 def build_request_from_product(product: dict) -> BaseRequest:
-    current_price = _safe_float(
-        product.get("current_price", product.get("prixVente", 0.0))
+    """
+    Construit un BaseRequest complet à partir d'un produit stock_service.
+    Correction de compatibilité : les services price/restock/stock_risk attendent
+    des attributs Pydantic (req.price, req.stock, req.date...), pas un dict.
+    """
+    if product is None:
+        raise ValueError("Produit introuvable")
+
+    product_id = _pick(product, "sku", "reference", "code", "id", "product_id", default=None)
+    if product_id is None:
+        raise ValueError("Produit sans identifiant exploitable")
+
+    price = _safe_float(
+        _pick(product, "prixVente", "prix_vente", "prixVenteTTC", "current_price", "price", default=0.0),
+        0.0,
+    )
+    if price <= 0:
+        price = 1.0
+
+    stock = _safe_float(
+        _pick(product, "stockDisponible", "stock_disponible", "quantiteStock", "quantite", "current_stock", "stock", default=0.0),
+        0.0,
     )
 
-    current_stock = _safe_float(
-        product.get("current_stock", product.get("stockDisponible", 0.0))
+    threshold_min = _safe_float(
+        _pick(product, "seuilMin", "threshold_min", "stockMin", "min_stock", default=0.0),
+        0.0,
+    )
+    threshold_max = _safe_float(
+        _pick(product, "seuilMax", "threshold_max", "stockMax", "max_stock", default=0.0),
+        0.0,
     )
 
-    cost_price = product.get("cost_price", product.get("prixCout"))
-    min_price = product.get("min_price")
-    threshold_min = product.get("threshold_min", product.get("seuilMin", 0.0))
-    threshold_max = product.get("threshold_max", product.get("seuilMax", 0.0))
-    discount = _safe_float(product.get("discount", 0.0))
-    min_margin = product.get("min_margin", product.get("margeReservee"))
-
-    model_product_id = str(
-        product.get("sku")
-        or product.get("product_id")
-        or product.get("id")
+    cost_price = _safe_float(
+        _pick(product, "prixCout", "prix_cout", "cost_price", "cout", default=0.0),
+        0.0,
+    )
+    min_margin = _safe_float(
+        _pick(product, "min_margin", "margeReservee", "marge_min", default=0.0),
+        0.0,
     )
 
-    category = product.get("category", product.get("categorie"))
-
-    target_date = _resolve_target_date(
-        product_id=model_product_id,
-        product=product,
-    )
-
-    peak_season = (
-        product.get("peak_season")
-        or product.get("season")
-        or infer_peak_season_from_category(category)
-    )
-
-    seasonality_factor = compute_seasonality_factor(
-        peak_season=peak_season,
-        current_date=target_date,
-    )
+    category = normalize_category(_pick(product, "categorie", "category", default="Accessories"))
+    brand = _pick(product, "marque", "brand", default=None)
 
     return BaseRequest(
-        store_id=str(product.get("store_id", DEFAULT_STORE_ID)),
-        product_id=model_product_id,
-        date=target_date,
-        price=current_price,
-        stock=current_stock,
-        discount=discount,
-        competitor_pricing=product.get("competitor_pricing"),
-        units_ordered=_safe_float(product.get("units_ordered", 0.0)),
-        weather_condition=product.get("weather_condition"),
+        store_id=str(_pick(product, "store_id", "magasin", default=DEFAULT_STORE_ID) or DEFAULT_STORE_ID),
+        product_id=str(product_id),
+        date=date.today(),
+        price=float(price),
+        stock=float(max(stock, 0.0)),
+        discount=_safe_float(_pick(product, "discount", "remise", default=0.0), 0.0),
+        competitor_pricing=_safe_float(_pick(product, "competitor_pricing", "prixConcurrent", default=price), price),
+        units_ordered=_safe_float(_pick(product, "units_ordered", "quantiteCommandee", default=0.0), 0.0),
+        weather_condition=str(_pick(product, "weather_condition", default=DEFAULT_WEATHER) or DEFAULT_WEATHER),
         category=category,
-        region=product.get("region", DEFAULT_REGION),
-        threshold_min=_safe_float(threshold_min),
-        threshold_max=_safe_float(threshold_max),
-        cost_price=_safe_float(cost_price) if cost_price is not None else None,
-        min_price=_safe_float(min_price) if min_price is not None else None,
-        min_margin=_safe_float(min_margin) / 100 if min_margin is not None else 0.0,
-        brand=product.get("brand", product.get("marque")),
-        peak_season=peak_season,
-        seasonality_factor=seasonality_factor,
+        region=str(_pick(product, "region", default=DEFAULT_REGION) or DEFAULT_REGION),
+        threshold_min=threshold_min,
+        threshold_max=threshold_max,
+        cost_price=cost_price,
+        min_price=cost_price if cost_price > 0 else None,
+        brand=brand,
+        min_margin=min_margin,
+        peak_season=_pick(product, "peak_season", "season", default=None),
+        seasonality_factor=_safe_float(_pick(product, "seasonality_factor", default=1.0), 1.0),
     )
