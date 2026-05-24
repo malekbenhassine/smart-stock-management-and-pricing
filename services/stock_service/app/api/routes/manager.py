@@ -5,6 +5,7 @@ from sqlalchemy.orm import Session
 
 from app.core.database import get_db
 from app.services.manager_service import (
+    enregistrer_activite,
     lister_demandes_modification_prix_service,
     lister_journal_activites_service,
     lister_ventes_manager_service,
@@ -69,3 +70,36 @@ def lister_journal_activites(
     db: Session = Depends(get_db),
 ):
     return lister_journal_activites_service(db=db, role=role, limit=limit)
+
+@router.post("/journal-activites/import-csv")
+def enregistrer_import_csv_activite(
+    payload: dict = Body(...),
+    db: Session = Depends(get_db),
+):
+    filename = payload.get("filename")
+    table_name = payload.get("table")
+    rows_imported = payload.get("rows_imported", 0)
+
+    enregistrer_activite(
+        db=db,
+        role_utilisateur="RESPONSABLE_STOCK",
+        nom_utilisateur="Responsable stock",
+        type_action="IMPORT_DONNEES_CSV",
+        type_entite="IMPORT_CSV",
+        entite_id=None,
+        produit_id=None,
+        description=f"Import CSV terminé : {rows_imported} ligne(s) importée(s) dans {table_name}.",
+        donnees={
+            "filename": filename,
+            "table": table_name,
+            "rows_imported": rows_imported,
+            "source": "csv_import_service",
+        },
+    )
+
+    db.commit()
+
+    return {
+        "status": "success",
+        "message": "Activité import CSV enregistrée.",
+    }

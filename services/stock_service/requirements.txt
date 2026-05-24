@@ -4,4 +4,5 @@ sqlalchemy
 psycopg2-binary
 pydantic
 requests
+httpx
 reportlab

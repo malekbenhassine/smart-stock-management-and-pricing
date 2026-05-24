@@ -4,6 +4,29 @@ from pydantic import BaseModel, Field
 
 class RunNowRequest(BaseModel):
     competitor_id: Optional[int] = None
+    launched_by_user_id: Optional[int] = None
+
+
+class ProductRunNowRequest(BaseModel):
+    product_ids: List[int]
+    fast: bool = True
+    debug: bool = False
+    launched_by_user_id: Optional[int] = None
+
+class ProductScheduleCreate(BaseModel):
+    product_ids: List[int]
+    run_at: str
+    fast: bool = True
+    debug: bool = False
+    title: Optional[str] = None
+    launched_by_user_id: Optional[int] = None
+
+
+class CatalogFrequencyConfig(BaseModel):
+    enabled: bool = True
+    # 3 heures minimum = 180 minutes.
+    interval_minutes: int = Field(default=180, ge=180)
+    competitor_id: Optional[int] = None
 
 
 class DiscoverSiteRequest(BaseModel):
@@ -28,6 +51,7 @@ class DiscoverSiteResponse(BaseModel):
     keywords: List[str] = Field(default_factory=list)
     catalogs: List[CompetitorCatalogDTO] = Field(default_factory=list)
     warnings: List[str] = Field(default_factory=list)
+    url_recherche: List[str] = Field(default_factory=list)
 
 
 class CompetitorModel(BaseModel):
@@ -42,20 +66,19 @@ class CompetitorModel(BaseModel):
     auto_keywords: List[str] = Field(default_factory=list)
     selectors_override: Dict[str, Any] = Field(default_factory=dict)
     catalogs: List[Dict[str, Any]] = Field(default_factory=list)
+    url_recherche: List[str] = Field(default_factory=list)
+
 
 class ProductCompetitorPayload(BaseModel):
     urlProduit: str
     skuConcurrent: Optional[str] = None
     nomProduit: str
     descriptionConcurrent: Optional[str] = None
-
     concurrent_id: int
     produit_id: Optional[int] = None
-
     prixConcurrent: float
     ancienPrixConcurrent: Optional[float] = None
     isPromo: bool = False
-
     disponibilite: Optional[str] = None
     dateCollecte: str
     fiable: bool = True
@@ -87,23 +110,3 @@ class ScrapeSummary(BaseModel):
     errors: List[str] = Field(default_factory=list)
     scraped_products: List[Dict[str, Any]] = Field(default_factory=list)
     saved_items: List[Dict[str, Any]] = Field(default_factory=list)
-    
-
-class ProductScheduleCreate(BaseModel):
-    product_ids: List[int]
-    run_at: str
-    fast: bool = True
-    debug: bool = False
-    title: Optional[str] = None
-
-
-class ProductRunNowRequest(BaseModel):
-    product_ids: List[int]
-    fast: bool = True
-    debug: bool = False
-
-
-class CatalogFrequencyConfig(BaseModel):
-    enabled: bool = True
-    interval_minutes: int = Field(default=360, ge=5)
-    competitor_id: Optional[int] = None

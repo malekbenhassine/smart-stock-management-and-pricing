@@ -1,5 +1,5 @@
 import os
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, text
 from sqlalchemy.orm import sessionmaker, declarative_base
 
 DB_HOST = os.getenv("DB_HOST", "postgres_stock")
@@ -24,6 +24,15 @@ Base = declarative_base()
 def init_db():
     from ..models.tables import Base as ModelsBase
     ModelsBase.metadata.create_all(bind=engine)
+
+    # Migration légère : create_all ne modifie pas les tables existantes.
+    # Cette colonne sert à stocker les templates de recherche détectés automatiquement.
+    with engine.begin() as conn:
+        conn.execute(text("""
+            ALTER TABLE concurrents
+            ADD COLUMN IF NOT EXISTS url_recherche JSON NOT NULL DEFAULT '[]'::json
+        """))
+
     print(f"[DB] stock_service connecté à {DB_HOST}:{DB_PORT}/{DB_NAME}")
 
 

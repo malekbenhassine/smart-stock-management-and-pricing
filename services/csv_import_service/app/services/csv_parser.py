@@ -8,10 +8,20 @@ import pandas as pd
 
 
 def _normalize_name(value: str) -> str:
+    """
+    Normalise les noms de colonnes/fichiers sans perdre le sens.
+
+    Exemples :
+    - prixVente -> prix_vente
+    - Prix Vente -> prix_vente
+    - prix-vente -> prix_vente
+    - catégorie -> categorie
+    """
     value = str(value).strip()
     value = unicodedata.normalize("NFKD", value).encode("ascii", "ignore").decode("ascii")
+    value = re.sub(r"([a-z0-9])([A-Z])", r"\1_\2", value)
     value = value.lower()
-    value = value.replace(" ", "_").replace("/", "_").replace("-", "_")
+    value = value.replace(" ", "_").replace("/", "_").replace("-", "_").replace(".", "_")
     value = re.sub(r"[^a-z0-9_]+", "", value)
     value = re.sub(r"_+", "_", value)
     return value.strip("_")
@@ -21,6 +31,7 @@ def _normalize_filename(filename: str) -> str:
     base = os.path.basename(str(filename))
     base = base.split("/")[-1].split("\\")[-1]
     base = unicodedata.normalize("NFKD", base).encode("ascii", "ignore").decode("ascii")
+    base = re.sub(r"([a-z0-9])([A-Z])", r"\1_\2", base)
     base = base.lower().strip()
     base = base.replace(" ", "_").replace("-", "_")
     base = re.sub(r"[^a-z0-9_.]+", "", base)
@@ -51,6 +62,7 @@ TABLE_FILE_ALIASES = {
         "catalogue_produits",
         "products_list",
         "product_list",
+        "catalogue",
     ],
     "fournisseurs": [
         "fournisseur",
@@ -84,6 +96,7 @@ TABLE_FILE_ALIASES = {
         "ligne_vente",
         "sale_lines",
         "sales_lines",
+        "details_ventes",
     ],
     "promotions": [
         "promotions",
@@ -131,6 +144,7 @@ TABLE_FILE_ALIASES = {
         "history_sales",
         "sales_dataset",
         "dataset_sales",
+        "historique",
     ],
 }
 
@@ -191,60 +205,237 @@ def _detect_table_from_filename(filename: str) -> str | None:
 def _detect_table_from_columns(df: pd.DataFrame) -> str | None:
     """
     Fallback si le nom de fichier n'est pas clair.
-
-    Exemple :
-    fichier : import_mai.csv
-    colonnes : sku, nom, prixVente, stockDisponible
-    => produits
+    La détection accepte les alias français/anglais et les variantes camelCase/snake_case.
     """
     columns = {_normalize_name(c) for c in df.columns}
 
     product_columns = {
+        "id",
         "sku",
+        "reference",
+        "ref",
+        "code",
+        "code_produit",
+        "product_id",
+        "produit_id",
         "nom",
+        "name",
+        "product_name",
+        "nom_produit",
+        "designation",
+        "libelle",
+        "titre",
         "categorie",
+        "category",
+        "famille",
+        "famille_produit",
+        "familleproduit",
+        "categorie_produit",
+        "product_category",
+        "type_produit",
         "marque",
+        "brand",
+        "fabricant",
+        "description",
+        "prix_cout",
         "prixcout",
+        "prix_achat",
+        "cost",
+        "cost_price",
+        "purchase_price",
+        "prix_vente",
         "prixvente",
+        "prix",
+        "price",
+        "sale_price",
+        "selling_price",
+        "prix_public",
+        "prix_ttc",
+        "marge_reservee",
+        "margereservee",
+        "marge",
+        "margin",
+        "stock_disponible",
         "stockdisponible",
+        "stock",
+        "quantite_stock",
+        "quantity",
+        "inventory",
+        "inventory_level",
+        "stock_reserve",
+        "stockreserve",
+        "stock_minimum",
+        "stockminimum",
+        "seuil_max",
+        "seuilmax",
+        "seuil_min",
+        "seuilmin",
+        "statut",
+        "status",
+        "etat",
+    }
+
+    sales_history_columns = {
+        "date",
+        "date_vente",
+        "datevente",
+        "sale_date",
+        "sales_date",
+        "jour",
+        "timestamp",
+        "store_id",
+        "store",
+        "magasin",
+        "magasin_id",
+        "shop",
+        "boutique",
+        "product_id",
+        "produit_id",
+        "sku",
+        "reference",
+        "ref",
+        "code_produit",
+        "category",
+        "categorie",
+        "famille",
+        "famille_produit",
+        "familleproduit",
+        "categorie_produit",
+        "product_category",
+        "type_produit",
+        "region",
+        "ville",
+        "city",
+        "zone",
+        "sales",
+        "ventes",
+        "units_sold",
+        "quantite_vendue",
+        "quantitevendue",
+        "qty_sold",
+        "quantity_sold",
+        "nombre_ventes",
+        "price",
+        "prix",
+        "prix_vente",
+        "prixvente",
+        "sale_price",
+        "selling_price",
+        "stock",
+        "inventory_level",
+        "niveau_stock",
+        "stock_disponible",
+        "stockdisponible",
+        "available_stock",
+        "discount",
+        "remise",
+        "taux_remise",
+        "promotion",
+        "competitor_pricing",
+        "prix_concurrent",
+        "prixconcurrent",
+        "competitor_price",
+        "market_price",
+        "units_ordered",
+        "unites_commandees",
+        "quantite_commandee",
+        "ordered_units",
+        "weather_condition",
+        "condition_meteo",
+        "meteo",
+        "holiday_promotion",
+        "promotion_jour_ferie",
+        "promo_jour_ferie",
+        "seasonality",
+        "saisonnalite",
+        "saison",
     }
 
     competitor_columns = {
         "nom",
         "siteurl",
+        "site_url",
+        "url_site",
         "frequencescrapingheures",
+        "frequence_scraping_heures",
+        "frequence",
     }
 
     competitor_product_columns = {
         "urlproduit",
+        "url_produit",
         "skuconcurrent",
+        "sku_concurrent",
         "nomproduit",
+        "nom_produit",
         "prixconcurrent",
+        "prix_concurrent",
         "concurrent_id",
         "produit_id",
     }
 
     stock_movement_columns = {
         "produit_id",
+        "product_id",
+        "id_produit",
         "type",
+        "mouvement",
+        "movement_type",
         "quantite",
+        "quantity",
+        "qty",
+        "date_mouvement",
+        "datemouvement",
+        "movement_date",
         "justification",
+        "motif",
+        "reason",
     }
 
-    sales_history_columns = {
-        "date",
-        "store_id",
+    sale_line_columns = {
+        "vente_id",
+        "sale_id",
+        "id_vente",
+        "produit_id",
         "product_id",
-        "units_sold",
-        "inventory_level",
-        "competitor_pricing",
+        "id_produit",
+        "quantite",
+        "quantity",
+        "qty",
+        "prix_vente_unitaire",
+        "prixventeunitaire",
+        "unit_price",
     }
+
+    sale_columns = {
+        "id",
+        "date_vente",
+        "datevente",
+        "sale_date",
+        "source",
+        "canal",
+        "statut",
+        "status",
+        "etat",
+    }
+
+    # IMPORTANT : on détecte sales_history avant produits, parce que sales_history peut contenir
+    # sku/category/price/stock, qui existent aussi dans un fichier produits.
+    has_date = bool(columns & {"date", "date_vente", "datevente", "sale_date", "sales_date", "jour", "timestamp"})
+    has_sales_metric = bool(columns & {"sales", "ventes", "units_sold", "quantite_vendue", "qty_sold", "quantity_sold", "nombre_ventes"})
+    has_product_key = bool(columns & {"product_id", "produit_id", "sku", "reference", "ref", "code_produit"})
+
+    if has_date and has_sales_metric and has_product_key and len(columns & sales_history_columns) >= 4:
+        return "sales_history"
 
     if len(columns & competitor_product_columns) >= 4:
         return "produits_concurrents"
 
-    if len(columns & sales_history_columns) >= 4:
-        return "sales_history"
+    if len(columns & sale_line_columns) >= 4:
+        return "lignes_ventes"
+
+    if len(columns & stock_movement_columns) >= 3:
+        return "mouvement_stock"
 
     if len(columns & product_columns) >= 5:
         return "produits"
@@ -252,8 +443,9 @@ def _detect_table_from_columns(df: pd.DataFrame) -> str | None:
     if len(columns & competitor_columns) >= 2:
         return "concurrents"
 
-    if len(columns & stock_movement_columns) >= 3:
-        return "mouvement_stock"
+    # Ventes simple : après lignes_ventes pour éviter confusion.
+    if len(columns & sale_columns) >= 3 and has_date:
+        return "ventes"
 
     return None
 
@@ -304,7 +496,7 @@ def _parse_excel(file_bytes: bytes, filename: str) -> pd.DataFrame:
 
 def _parse_csv(file_bytes: bytes, filename: str) -> pd.DataFrame:
     try:
-        df = pd.read_csv(BytesIO(file_bytes), dtype=str, encoding="utf-8")
+        df = pd.read_csv(BytesIO(file_bytes), dtype=str, encoding="utf-8-sig")
     except UnicodeDecodeError:
         df = pd.read_csv(BytesIO(file_bytes), dtype=str, encoding="latin1")
 
@@ -331,6 +523,8 @@ def parse_csv(file_bytes: bytes, filename: str):
     - liste-produits.xlsx
     - concurrents_test.csv
     - historique_ventes_mai.csv
+
+    Si le nom n'est pas reconnu, la table est détectée à partir des colonnes.
     """
     base_filename = _normalize_filename(filename)
     _, ext = _filename_without_extension(base_filename)

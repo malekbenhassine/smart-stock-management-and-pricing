@@ -1,6 +1,6 @@
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel
 
 from app.schemas.scraping_schemas import (
@@ -22,22 +22,27 @@ class ProductSearchRequest(BaseModel):
     marque: Optional[str] = None
     description: Optional[str] = None
     categorie: Optional[str] = None
+    launched_by_user_id: Optional[int] = None
+    user_id: Optional[int] = None
+
+
+def resolve_user_id(payload_user_id=None, payload_launched_by_user_id=None, query_user_id=None):
+    return payload_launched_by_user_id or payload_user_id or query_user_id
 
 
 @router.post("/run-now")
-def run_now(payload: RunNowRequest):
-    """
-    Lance le scraping catalogue en arrière-plan.
+def run_now(payload: RunNowRequest, user_id: Optional[int] = Query(default=None)):
+    launched_by_user_id = resolve_user_id(
+        payload_launched_by_user_id=payload.launched_by_user_id,
+        query_user_id=user_id,
+    )
 
-    Important :
-    Cette route ne doit jamais attendre la fin du scraping,
-    sinon le frontend/API gateway reçoit un 504.
-    """
     return {
         "status": "started",
         "message": "Scraping catalogue lancé en arrière-plan.",
         "job": dual_scheduler.run_catalog_now(
             competitor_id=payload.competitor_id,
+            launched_by_user_id=launched_by_user_id,
         ),
     }
 
@@ -47,15 +52,22 @@ def search_product_on_competitors(
     payload: ProductSearchRequest,
     debug: bool = False,
     fast: bool = True,
+    user_id: Optional[int] = Query(default=None),
 ):
-    """
-    Lance la recherche ciblée produit en arrière-plan.
-    """
     try:
+        launched_by_user_id = resolve_user_id(
+            payload_user_id=payload.user_id,
+            payload_launched_by_user_id=payload.launched_by_user_id,
+            query_user_id=user_id,
+        )
+
+        print("[SCRAPING_ROUTE] /search-product launched_by_user_id =", launched_by_user_id, flush=True)
+
         job = dual_scheduler.run_product_job_now(
             product_ids=[payload.product_id],
             fast=fast,
             debug=debug,
+            launched_by_user_id=launched_by_user_id,
         )
 
         return {
@@ -70,14 +82,20 @@ def search_product_on_competitors(
 
 
 @router.post("/product-schedules")
-def create_product_schedule(payload: ProductScheduleCreate):
+def create_product_schedule(payload: ProductScheduleCreate, user_id: Optional[int] = Query(default=None)):
     try:
+        launched_by_user_id = resolve_user_id(
+            payload_launched_by_user_id=payload.launched_by_user_id,
+            query_user_id=user_id,
+        )
+
         return dual_scheduler.create_product_job(
             product_ids=payload.product_ids,
             run_at=payload.run_at,
             fast=payload.fast,
             debug=payload.debug,
             title=payload.title,
+            launched_by_user_id=launched_by_user_id,
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
@@ -110,12 +128,20 @@ def cancel_product_schedule(job_id: str):
 
 
 @router.post("/product-run-now")
-def product_run_now(payload: ProductRunNowRequest):
+def product_run_now(payload: ProductRunNowRequest, user_id: Optional[int] = Query(default=None)):
     try:
+        launched_by_user_id = resolve_user_id(
+            payload_launched_by_user_id=payload.launched_by_user_id,
+            query_user_id=user_id,
+        )
+
+        print("[SCRAPING_ROUTE] /product-run-now launched_by_user_id =", launched_by_user_id, flush=True)
+
         return dual_scheduler.run_product_job_now(
             product_ids=payload.product_ids,
             fast=payload.fast,
             debug=payload.debug,
+            launched_by_user_id=launched_by_user_id,
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
@@ -136,11 +162,21 @@ def get_catalog_frequency():
 
 
 @router.post("/catalog-run-now")
-def catalog_run_now():
+def catalog_run_now(payload: RunNowRequest = RunNowRequest(), user_id: Optional[int] = Query(default=None)):
+    launched_by_user_id = resolve_user_id(
+        payload_launched_by_user_id=payload.launched_by_user_id,
+        query_user_id=user_id,
+    )
+
+    print("[SCRAPING_ROUTE] /catalog-run-now launched_by_user_id =", launched_by_user_id, flush=True)
+
     return {
         "status": "started",
         "message": "Scraping catalogue lancé en arrière-plan.",
-        "job": dual_scheduler.run_catalog_now(),
+        "job": dual_scheduler.run_catalog_now(
+            competitor_id=payload.competitor_id,
+            launched_by_user_id=launched_by_user_id,
+        ),
     }
 
 

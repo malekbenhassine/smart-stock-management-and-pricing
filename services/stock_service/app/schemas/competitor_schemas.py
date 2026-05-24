@@ -1,54 +1,116 @@
-from typing import Optional, List, Dict, Any
-from pydantic import BaseModel, Field, HttpUrl
+from typing import Any, Dict, List, Optional
+
+from pydantic import AliasChoices, BaseModel, ConfigDict, Field, HttpUrl
 
 
 class CompetitorCreate(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
     nom: str = Field(..., min_length=2, max_length=255)
-    site_url: HttpUrl
+    url_site: HttpUrl = Field(
+        ...,
+        validation_alias=AliasChoices("url_site", "site_url", "siteurl"),
+        serialization_alias="url_site",
+    )
     actif: bool = True
-    frequence_scraping_heures: int = Field(default=24, ge=1, le=168)
+    frequence_scraping_heures: int = Field(
+        default=3,
+        ge=3,
+        le=168,
+        validation_alias=AliasChoices(
+            "frequence_scraping_heures",
+            "frequencescrapingheures",
+            "frequenceScrapingHeures",
+        ),
+        serialization_alias="frequence_scraping_heures",
+    )
 
 
 class CompetitorUpdate(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
     nom: Optional[str] = Field(default=None, min_length=2, max_length=255)
-    site_url: Optional[HttpUrl] = None
+    url_site: Optional[HttpUrl] = Field(
+        default=None,
+        validation_alias=AliasChoices("url_site", "site_url", "siteurl"),
+        serialization_alias="url_site",
+    )
     actif: Optional[bool] = None
-    frequence_scraping_heures: Optional[int] = Field(default=None, ge=1, le=168)
+    frequence_scraping_heures: Optional[int] = Field(
+        default=None,
+        ge=3,
+        le=168,
+        validation_alias=AliasChoices(
+            "frequence_scraping_heures",
+            "frequencescrapingheures",
+            "frequenceScrapingHeures",
+        ),
+        serialization_alias="frequence_scraping_heures",
+    )
 
 
 class CompetitorAdvancedConfigUpdate(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
     selectors_override: Optional[Dict[str, Any]] = None
+    url_recherche: Optional[List[str]] = None
+
+    selecteurs_override: Optional[Dict[str, Any]] = None
+    urls_recherche: Optional[List[str]] = None
 
 
 class CompetitorCatalogOut(BaseModel):
     id: int
-    title: str
+
+    # Champs français
+    titre: str
     url: str
-    parent_url: Optional[str] = None
-    depth: int
+    cle_url: Optional[str] = None
+    url_parent: Optional[str] = None
+    profondeur: int
     score: float
     source: str
-    is_selected: bool
-    is_active: bool
+    actif: bool
+    date_decouverte: Optional[str] = None
+
+    title: Optional[str] = None
+    url_key: Optional[str] = None
+    parent_url: Optional[str] = None
+    depth: Optional[int] = None
+    is_active: Optional[bool] = None
+    discovered_at: Optional[str] = None
 
 
 class CompetitorOut(BaseModel):
     id: int
     nom: str
-    site_url: str
-    site_host_normalized: str
+
+    url_site: str
+    hote_site_normalise: str
     actif: bool
     frequence_scraping_heures: int
     dernier_scraping: Optional[str] = None
+    statut_decouverte: str
+    date_derniere_decouverte: Optional[str] = None
+    erreur_derniere_decouverte: Optional[str] = None
+    mots_cles_auto: List[str] = Field(default_factory=list)
+    selecteurs_override: Dict[str, Any] = Field(default_factory=dict)
+    urls_recherche: List[str] = Field(default_factory=list)
+    catalogues: List[CompetitorCatalogOut] = Field(default_factory=list)
+    date_creation: Optional[str] = None
+    date_modification: Optional[str] = None
 
-    discovery_status: str
-    last_discovery_at: Optional[str] = None
-    last_discovery_error: Optional[str] = None
-
-    auto_keywords: List[str] = Field(default_factory=list)
-    selectors_override: Dict[str, Any] = Field(default_factory=dict)
-    catalogs: List[CompetitorCatalogOut] = Field(default_factory=list)
-
+    url_site: Optional[str] = None
+    hote_site_normalise: Optional[str] = None
+    statut_decouverte: Optional[str] = None
+    date_derniere_decouverte: Optional[str] = None
+    erreur_derniere_decouverte: Optional[str] = None
+    mots_cles_auto: List[str] = Field(default_factory=list)
+    selecteurs_override: Dict[str, Any] = Field(default_factory=dict)
+    urls_recherche: List[str] = Field(default_factory=list)
+    catalogues: List[CompetitorCatalogOut] = Field(default_factory=list)
+    date_creation: Optional[str] = None
+    date_modification: Optional[str] = None
 
 class CompetitorCatalogSelectionUpdate(BaseModel):
     catalog_ids: List[int]

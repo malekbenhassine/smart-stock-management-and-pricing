@@ -258,14 +258,14 @@ def bulk_competitors(items: list[CompetitorIn], db: Session = Depends(get_db)):
 
         obj = (
             db.query(Competitor)
-            .filter(Competitor.site_host_normalized == host)
+            .filter(Competitor.hote_site_normalise == host)
             .first()
         )
 
         if not obj:
             obj = (
                 db.query(Competitor)
-                .filter(Competitor.site_url == normalized_site)
+                .filter(Competitor.url_site == normalized_site)
                 .first()
             )
 
@@ -279,18 +279,18 @@ def bulk_competitors(items: list[CompetitorIn], db: Session = Depends(get_db)):
             updated_count += 1
 
         obj.nom = str(item.nom).strip()
-        obj.site_url = normalized_site
-        obj.site_host_normalized = host
+        obj.url_site = normalized_site
+        obj.hote_site_normalise = host
         obj.actif = bool(item.actif) if item.actif is not None else True
         obj.frequence_scraping_heures = item.frequencescrapingheures or 24
         obj.dernier_scraping = item.dernierscraping
 
         # Ne pas écraser ready en pending si le concurrent était déjà découvert.
-        if not obj.discovery_status:
-            obj.discovery_status = "pending"
+        if not obj.statut_decouverte:
+            obj.statut_decouverte = "pending"
 
-        obj.auto_keywords_json = obj.auto_keywords_json or []
-        obj.selectors_override_json = obj.selectors_override_json or {}
+        obj.mots_cles_auto_json = obj.mots_cles_auto_json or []
+        obj.selecteurs_override_json = obj.selecteurs_override_json or {}
 
         rows_processed += 1
 

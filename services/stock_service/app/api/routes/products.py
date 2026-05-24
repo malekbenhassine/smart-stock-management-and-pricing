@@ -99,6 +99,15 @@ def _block_competitive_recommendation_if_validation_required(
 
 
 def _background_scrape_after_product_creation(product_id: int):
+    """
+    Lance le scraping produit après l'ajout manuel d'un produit.
+
+    Correction importante :
+    - On ne marque plus le produit DONE juste après l'appel HTTP.
+    - /jobs/product-run-now crée un job asynchrone dans scraping_service.
+    - Le statut final DONE/FAILED sera mis à jour par scraping_service via
+      POST /products/{product_id}/competitive-analysis-finished.
+    """
     db = SessionLocal()
     try:
         product = db.query(Product).filter(Product.id == product_id).first()
@@ -108,36 +117,38 @@ def _background_scrape_after_product_creation(product_id: int):
 
         product.analyse_concurrentielle_statut = "RUNNING"
         product.analyse_concurrentielle_date = None
+
+        if hasattr(product, "statut_prix") and product.statut_prix != "PRIX_VALIDE":
+            product.statut_prix = "EN_ATTENTE_PRICING"
+
         db.commit()
 
         client = ScrapingServiceClient()
-        scraping_result = client.search_product_on_competitors({
-            "id": product.id,
-            "sku": product.sku,
-            "nom": product.nom,
-            "marque": product.marque,
-            "description": product.description,
-            "categorie": product.categorie,
-        })
+        scraping_result = client.run_product_job_now(
+            product_ids=[product.id],
+            fast=True,
+            debug=False,
+        )
 
         if scraping_result.get("status") == "error":
-            raise Exception(scraping_result.get("error", "Erreur recherche ciblée inconnue"))
+            raise Exception(scraping_result.get("error", "Erreur lancement scraping inconnue"))
 
-        product = db.query(Product).filter(Product.id == product_id).first()
-        if product:
-            product.analyse_concurrentielle_statut = "DONE"
-            product.analyse_concurrentielle_date = datetime.utcnow()
-            # Le prix reste à valider par le responsable pricing.
-            if hasattr(product, "statut_prix") and product.statut_prix != "PRIX_VALIDE":
-                product.statut_prix = "RECOMMANDATION_PRETE"
-            db.commit()
+        logger.info(
+            "Job scraping créé après ajout produit %s: %s",
+            product_id,
+            scraping_result.get("id") or scraping_result.get("job_id"),
+        )
 
     except Exception as exc:
-        logger.error("Erreur analyse concurrentielle produit %s: %s", product_id, exc)
+        logger.error("Erreur lancement analyse concurrentielle produit %s: %s", product_id, exc)
         product = db.query(Product).filter(Product.id == product_id).first()
         if product:
             product.analyse_concurrentielle_statut = "FAILED"
             product.analyse_concurrentielle_date = datetime.utcnow()
+
+            if hasattr(product, "statut_prix") and product.statut_prix != "PRIX_VALIDE":
+                product.statut_prix = "RECOMMANDATION_PRETE"
+
             db.commit()
     finally:
         db.close()
@@ -225,20 +236,25 @@ def bulk_import_products(items: list[ProductIn], db: Session = Depends(get_db)):
         obj.prix_cout = item.prixcout
         obj.prix_vente = item.prixvente
         obj.marge_reservee = item.margereservee
-        obj.stock_disponible = item.stockdisponible or 0
-        obj.stock_reserve = item.stockreserve or 0
-        obj.stock_minimum = item.stockminimum
-        obj.seuil_max = item.seuilmax
-        obj.seuil_min = item.seuilmin
-        obj.statut = item.statut or "actif"
-        obj.date_debut_observation = item.datedebutobservation
-        obj.date_fin_observation = item.datefinobservation
+        # Important : ne pas utiliser "or 0" pour tous les champs,
+        # car 0 est une vraie valeur et None veut dire "non fourni".
+        obj.stock_disponible = item.stockdisponible if item.stockdisponible is not None else 0
+        obj.stock_reserve = item.stockreserve if item.stockreserve is not None else 0
+        obj.stock_minimum = item.stockminimum if item.stockminimum is not None else 0
+        obj.seuil_max = item.seuilmax if item.seuilmax is not None else 0
+        obj.seuil_min = item.seuilmin if item.seuilmin is not None else 0
+        obj.statut = item.statut or "ACTIF"
+
+        if hasattr(obj, "date_debut_observation"):
+            obj.date_debut_observation = item.datedebutobservation
+        if hasattr(obj, "date_fin_observation"):
+            obj.date_fin_observation = item.datefinobservation
 
         if hasattr(obj, "statut_prix") and obj.statut_prix != "PRIX_VALIDE":
-            obj.statut_prix = "EN_ATTENTE_PRICING"
+            obj.statut_prix = item.statutprix or "EN_ATTENTE_PRICING"
 
         if hasattr(obj, "analyse_concurrentielle_statut"):
-            obj.analyse_concurrentielle_statut = "NOT_STARTED"
+            obj.analyse_concurrentielle_statut = item.analyseconcurrentiellestatut or "NOT_STARTED"
             obj.analyse_concurrentielle_date = None
 
         db.flush()
@@ -432,6 +448,46 @@ def get_initial_price_recommendation(product_id: int, db: Session = Depends(get_
     return calculate_price_recommendation(product_id=product.id, db=db)
 
 
+
+
+@router.post("/{product_id}/price-recommendation-ready-alert")
+def trigger_price_recommendation_ready_alert(product_id: int, db: Session = Depends(get_db)):
+    """
+    Endpoint interne appelé par scraping_service uniquement après la fin du scraping
+    d'un produit. Il calcule la recommandation et déclenche l'alerte à ce moment-là,
+    pas quand le responsable pricing ouvre la page.
+    """
+    product = db.query(Product).filter(Product.id == product_id).first()
+
+    if not product:
+        raise HTTPException(status_code=404, detail="Produit introuvable")
+
+    if product.analyse_concurrentielle_statut == "RUNNING":
+        return {
+            "status": "pending",
+            "productId": product.id,
+            "message": "Scraping encore en cours : aucune alerte recommandation envoyée.",
+        }
+
+    blocked = _block_competitive_recommendation_if_validation_required(product, "competitive", db)
+    if blocked:
+        return {
+            **blocked,
+            "alertSent": False,
+        }
+
+    result = calculate_price_recommendation(
+        product_id=product.id,
+        db=db,
+        emit_alert=True,
+    )
+
+    return {
+        "status": "success",
+        "alertSent": True,
+        "recommendation": result,
+    }
+
 @router.get("/{product_id}/price-recommendation")
 def get_price_recommendation(product_id: int, strategy: str = "competitive", db: Session = Depends(get_db)):
     product = db.query(Product).filter(Product.id == product_id).first()
@@ -475,3 +531,47 @@ def post_price_recommendation(
         return blocked
 
     return calculate_price_recommendation(product_id=product.id, db=db)
+
+@router.post("/{product_id}/competitive-analysis-finished")
+def competitive_analysis_finished(
+    product_id: int,
+    payload: dict = Body(default={}),
+    db: Session = Depends(get_db),
+):
+    product = db.query(Product).filter(Product.id == product_id).first()
+
+    if not product:
+        raise HTTPException(status_code=404, detail="Produit introuvable")
+
+    status = str(payload.get("status") or "DONE").upper()
+    products_saved = int(payload.get("products_saved") or 0)
+    matched = int(payload.get("matched") or 0)
+    manual_review = int(payload.get("manual_review") or 0)
+
+    if status not in {"DONE", "FAILED"}:
+        status = "DONE"
+
+    product.analyse_concurrentielle_statut = status
+    product.analyse_concurrentielle_date = datetime.utcnow()
+
+    if status == "DONE":
+        if hasattr(product, "statut_prix") and product.statut_prix != "PRIX_VALIDE":
+            if products_saved > 0 or matched > 0 or manual_review > 0:
+                product.statut_prix = "RECOMMANDATION_PRETE"
+            else:
+                product.statut_prix = "EN_ATTENTE_PRICING"
+
+    if status == "FAILED":
+        if hasattr(product, "statut_prix") and product.statut_prix != "PRIX_VALIDE":
+            product.statut_prix = "EN_ATTENTE_PRICING"
+
+    db.commit()
+    db.refresh(product)
+
+    return {
+        "status": "success",
+        "product_id": product.id,
+        "analyse_concurrentielle_statut": product.analyse_concurrentielle_statut,
+        "analyse_concurrentielle_date": product.analyse_concurrentielle_date,
+        "statut_prix": getattr(product, "statut_prix", None),
+    }

@@ -5,8 +5,12 @@ from sqlalchemy.orm import Session
 
 from app.core.database import get_db
 from app.core.deps import require_admin
-from app.repositories.user_repo import UserRepository
-from app.schemas.user_schemas import AdminEmailUpdate, UserCreateByAdmin, UserResponse, UserUpdateByAdmin
+from app.schemas.user_schemas import (
+    AdminEmailUpdate,
+    UserCreateByAdmin,
+    UserResponse,
+    UserUpdateByAdmin,
+)
 from app.services.auth_service import AuthService
 
 router = APIRouter(prefix="/users", tags=["users"])
@@ -31,7 +35,7 @@ def create_user_by_admin(
 
 @router.get("", response_model=List[UserResponse])
 def list_users(db: Session = Depends(get_db), _admin=Depends(require_admin)):
-    return UserRepository.list_all(db)
+    return AuthService.list_users(db)
 
 
 @router.patch("/{user_id}/email", response_model=UserResponse)
@@ -41,12 +45,20 @@ def update_user_email_as_admin(
     db: Session = Depends(get_db),
     _admin=Depends(require_admin),
 ):
-    return AuthService.admin_update_user_email(db=db, user_id=user_id, email=payload.email)
+    return AuthService.admin_update_user_email(
+        db=db,
+        user_id=user_id,
+        email=payload.email,
+    )
 
 
 @router.get("/{user_id}", response_model=UserResponse)
-def get_user(user_id: int, db: Session = Depends(get_db), _admin=Depends(require_admin)):
-    user = UserRepository.get_by_id(db, user_id)
+def get_user(
+    user_id: int,
+    db: Session = Depends(get_db),
+    _admin=Depends(require_admin),
+):
+    user = AuthService.get_user_by_id(db, user_id)
     if not user:
         raise HTTPException(status_code=404, detail="Utilisateur introuvable.")
     return user
@@ -59,14 +71,31 @@ def update_user(
     db: Session = Depends(get_db),
     _admin=Depends(require_admin),
 ):
-    return AuthService.admin_update_user(db, user_id, payload.dict(exclude_none=True))
+    return AuthService.admin_update_user(
+        db,
+        user_id,
+        payload.dict(exclude_none=True),
+    )
 
 
 @router.delete("/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_user(user_id: int, db: Session = Depends(get_db), _admin=Depends(require_admin)):
+def delete_user(
+    user_id: int,
+    db: Session = Depends(get_db),
+    _admin=Depends(require_admin),
+):
     AuthService.admin_delete_user(db, user_id)
 
 
 @router.post("/{user_id}/resend-activation")
-def resend_activation(user_id: int, request: Request, db: Session = Depends(get_db), _admin=Depends(require_admin)):
-    return AuthService.admin_resend_activation(db, user_id, request=request)
+def resend_activation(
+    user_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+    _admin=Depends(require_admin),
+):
+    return AuthService.admin_resend_activation(
+        db,
+        user_id,
+        request=request,
+    )

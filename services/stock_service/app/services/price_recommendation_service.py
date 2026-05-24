@@ -5,7 +5,7 @@ from typing import Any
 
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
-
+from app.services.alert_event_client import emit_alert_event
 from app.models.tables import Product, ProductCompetitor
 
 
@@ -252,12 +252,55 @@ def _internal_price_recommendation(
         "message": reason,
     }
 
+def _send_price_recommendation_alert(product: Product, result: dict) -> None:
+    prix_recommande = result.get("prixRecommande") or result.get("recommended_price")
 
-# -----------------------------------------------------------------------------
-# Service principal
-# -----------------------------------------------------------------------------
+    if not prix_recommande:
+        return
 
-def calculate_price_recommendation(product_id: int, db: Session) -> dict:
+    source = result.get("source")
+    usable_count = result.get("usableCompetitorCount") or 0
+
+    priority = "LOW"
+
+    if source == "HYBRIDE_INTERNE_CONCURRENCE" and usable_count >= 2:
+        priority = "MEDIUM"
+
+    marge = _normalize_margin(
+        _get_attr(product, "marge_reservee", "margeReservee", default=0.2)
+    )
+
+    if marge >= 0.3:
+        priority = "IMPORTANT"
+        
+    print("[PRICE ALERT] envoi recommandation prix:", {
+        "product_id": product.id,
+        "product_name": product.nom,
+        "prix_recommande": prix_recommande,
+        "priority": priority,
+    })
+    emit_alert_event(
+        event_type="PRICE_RECOMMENDATION_AVAILABLE",
+        source_service="stock_service",
+        target_role="PRICING",
+        product_id=product.id,
+        product_name=product.nom,
+        value=prix_recommande,
+        metadata={
+            "product_id": product.id,
+            "sku": product.sku,
+            "product_name": product.nom,
+            "prix_actuel": result.get("prixActuel"),
+            "prix_recommande": prix_recommande,
+            "source": source,
+            "usable_competitor_count": usable_count,
+            "priority": priority,
+            "message": f"Une recommandation de prix est disponible pour {product.nom}.",
+        },
+    )
+    
+    
+def calculate_price_recommendation(product_id: int, db: Session, emit_alert: bool = False) -> dict:
     product = db.query(Product).filter(Product.id == product_id).first()
 
     if not product:
@@ -289,7 +332,7 @@ def calculate_price_recommendation(product_id: int, db: Session) -> dict:
     competitor_prices = [p for p in competitor_prices if p is not None and p > 0]
 
     if not competitor_prices:
-        return _internal_price_recommendation(
+        result = _internal_price_recommendation(
             product=product,
             prix_actuel=prix_actuel,
             prix_cout=prix_cout,
@@ -302,6 +345,11 @@ def calculate_price_recommendation(product_id: int, db: Session) -> dict:
                 "La recommandation est donc basée sur les données internes."
             ),
         )
+
+        if emit_alert:
+            _send_price_recommendation_alert(product, result)
+
+        return result
 
     prix_min = min(competitor_prices)
     prix_max = max(competitor_prices)
@@ -321,7 +369,7 @@ def calculate_price_recommendation(product_id: int, db: Session) -> dict:
     prix_recommande = _round_price(prix_recommande)
     direction, ecart, ecart_pct = _calculate_direction(prix_actuel, prix_recommande)
 
-    return {
+    result = {
         "status": "success",
         "source": "HYBRIDE_INTERNE_CONCURRENCE",
         "productId": product.id,
@@ -355,6 +403,11 @@ def calculate_price_recommendation(product_id: int, db: Session) -> dict:
             "Statuts acceptés : MATCHED, AUTO_MATCHED, VALIDATED, MANUAL_VALIDATED."
         ),
     }
+
+    if emit_alert:
+        _send_price_recommendation_alert(product, result)
+
+    return result
 
 
 def get_price_recommendation_service(product_id: int, db: Session) -> dict:

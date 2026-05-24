@@ -1,12 +1,19 @@
 import asyncio
 import math
+import re
+import unicodedata
 
 import pandas as pd
 from fastapi import HTTPException, UploadFile
 from sqlalchemy.orm import Session
 
 from .csv_parser import parse_csv
-from .http_clients import post_to_inference, post_to_stock, trigger_post_import_workflow
+from .http_clients import (
+    post_to_inference,
+    post_to_stock,
+    trigger_post_import_workflow,
+    notify_stock_import_activity,
+)
 from .import_service import log_import_bulk
 
 
@@ -93,6 +100,38 @@ def _safe_str(value):
         return None
 
     return s
+
+
+def _normalize_column_name(value: str) -> str:
+    """
+    Normalise un nom de colonne pour comparer plusieurs écritures possibles.
+
+    Exemples :
+    - prixVente -> prix_vente
+    - Prix Vente -> prix_vente
+    - prix-vente -> prix_vente
+    - catégorie -> categorie
+    """
+    value = str(value).strip()
+    value = unicodedata.normalize("NFKD", value).encode("ascii", "ignore").decode("ascii")
+    value = re.sub(r"([a-z0-9])([A-Z])", r"\1_\2", value)
+    value = value.lower()
+    value = value.replace("-", "_").replace("/", "_").replace(".", "_").replace(" ", "_")
+    value = re.sub(r"[^a-z0-9_]+", "", value)
+    value = re.sub(r"_+", "_", value)
+    return value.strip("_")
+
+
+def _is_empty_value(value) -> bool:
+    if value is None:
+        return True
+
+    if isinstance(value, float) and (math.isnan(value) or math.isinf(value)):
+        return True
+
+    return str(value).strip().lower() in _NULL_STRINGS
+
+
 
 
 _TABLE_SCHEMA: dict[str, tuple[dict, list[str]]] = {
@@ -231,56 +270,379 @@ _CONVERTERS = {
 
 
 def _apply_column_aliases(df: pd.DataFrame, table_name: str) -> pd.DataFrame:
+    """
+    Convertit les colonnes CSV vers les champs attendus par les schémas internes.
+
+    Objectif : accepter des fichiers écrits différemment sans casser l'ancien format.
+    Exemple :
+    - prixVente, prix_vente, prix, price -> prixvente pour produits
+    - sales, ventes, quantite_vendue -> units_sold pour sales_history
+    """
     aliases_by_table = {
         "produits": {
+            # Identité produit
             "id": "id",
             "sku": "sku",
             "reference": "sku",
             "ref": "sku",
+            "code": "sku",
+            "code_produit": "sku",
+            "product_id": "sku",
+            "produit_id": "sku",
+
+            # Nom
             "nom": "nom",
             "name": "nom",
+            "product_name": "nom",
+            "nom_produit": "nom",
             "designation": "nom",
+            "libelle": "nom",
+            "titre": "nom",
+
+            # Catégorie
             "categorie": "categorie",
             "category": "categorie",
+            "famille": "categorie",
+            "famille_produit": "categorie",
+            "familleproduit": "categorie",
+            "categorie_produit": "categorie",
+            "product_category": "categorie",
+            "type_produit": "categorie",
+
+            # Marque
             "marque": "marque",
             "brand": "marque",
+            "fabricant": "marque",
+
+            # Description
             "description": "description",
+            "desc": "description",
+            "details": "description",
+
+            # Prix coût
             "prixcout": "prixcout",
             "prix_cout": "prixcout",
-            "prixCout": "prixcout",
+            "prix_achat": "prixcout",
+            "cout": "prixcout",
+            "cost": "prixcout",
             "cost_price": "prixcout",
+            "purchase_price": "prixcout",
+
+            # Prix vente
             "prixvente": "prixvente",
             "prix_vente": "prixvente",
-            "prixVente": "prixvente",
+            "prix": "prixvente",
+            "price": "prixvente",
             "sale_price": "prixvente",
+            "selling_price": "prixvente",
+            "prix_public": "prixvente",
+            "prix_ttc": "prixvente",
+
+            # Marge
             "margereservee": "margereservee",
             "marge_reservee": "margereservee",
-            "margeReservee": "margereservee",
+            "marge": "margereservee",
+            "margin": "margereservee",
+
+            # Stock disponible
             "stockdisponible": "stockdisponible",
             "stock_disponible": "stockdisponible",
-            "stockDisponible": "stockdisponible",
             "stock": "stockdisponible",
+            "quantite_stock": "stockdisponible",
+            "quantite": "stockdisponible",
+            "quantity": "stockdisponible",
+            "inventory": "stockdisponible",
+            "inventory_level": "stockdisponible",
+            "available_stock": "stockdisponible",
+
+            # Stock réservé
             "stockreserve": "stockreserve",
             "stock_reserve": "stockreserve",
-            "stockReserve": "stockreserve",
+            "reserved_stock": "stockreserve",
+
+            # Stock minimum
             "stockminimum": "stockminimum",
             "stock_minimum": "stockminimum",
-            "stockMinimum": "stockminimum",
+            "minimum_stock": "stockminimum",
+            "min_stock": "stockminimum",
+
+            # Seuil max
             "seuilmax": "seuilmax",
             "seuil_max": "seuilmax",
-            "seuilMax": "seuilmax",
+            "max_stock": "seuilmax",
+            "stock_max": "seuilmax",
+            "stockmaximum": "seuilmax",
+            "stock_maximum": "seuilmax",
+
+            # Seuil min
             "seuilmin": "seuilmin",
             "seuil_min": "seuilmin",
-            "seuilMin": "seuilmin",
+            "min_stock_alert": "seuilmin",
+            "seuil_alerte": "seuilmin",
+
+            # Statut
             "statut": "statut",
             "status": "statut",
+            "etat": "statut",
+
+            # Dates observation
             "datedebutobservation": "datedebutobservation",
             "date_debut_observation": "datedebutobservation",
-            "dateDebutObservation": "datedebutobservation",
+            "date_debut": "datedebutobservation",
+            "start_date": "datedebutobservation",
+
             "datefinobservation": "datefinobservation",
             "date_fin_observation": "datefinobservation",
-            "dateFinObservation": "datefinobservation",
-        }
+            "date_fin": "datefinobservation",
+            "end_date": "datefinobservation",
+        },
+
+        "sales_history": {
+            # Date
+            "date": "date",
+            "date_vente": "date",
+            "datevente": "date",
+            "sale_date": "date",
+            "sales_date": "date",
+            "jour": "date",
+            "timestamp": "date",
+
+            # Magasin
+            "store_id": "store_id",
+            "store": "store_id",
+            "magasin": "store_id",
+            "magasin_id": "store_id",
+            "shop": "store_id",
+            "boutique": "store_id",
+
+            # Produit
+            "product_id": "product_id",
+            "produit_id": "product_id",
+            "sku": "product_id",
+            "reference": "product_id",
+            "ref": "product_id",
+            "code_produit": "product_id",
+
+            # Catégorie
+            "category": "category",
+            "categorie": "category",
+            "famille": "category",
+            "famille_produit": "category",
+            "familleproduit": "category",
+            "categorie_produit": "category",
+            "product_category": "category",
+            "type_produit": "category",
+
+            # Région
+            "region": "region",
+            "ville": "region",
+            "city": "region",
+            "zone": "region",
+
+            # Ventes
+            "sales": "units_sold",
+            "units_sold": "units_sold",
+            "ventes": "units_sold",
+            "quantite_vendue": "units_sold",
+            "quantitevendue": "units_sold",
+            "qty_sold": "units_sold",
+            "quantity_sold": "units_sold",
+            "nombre_ventes": "units_sold",
+
+            # Prix
+            "price": "price",
+            "prix": "price",
+            "prix_vente": "price",
+            "prixvente": "price",
+            "sale_price": "price",
+            "selling_price": "price",
+
+            # Stock historique
+            "stock": "inventory_level",
+            "inventory_level": "inventory_level",
+            "niveau_stock": "inventory_level",
+            "stock_disponible": "inventory_level",
+            "stockdisponible": "inventory_level",
+            "available_stock": "inventory_level",
+
+            # Remise
+            "discount": "discount",
+            "remise": "discount",
+            "taux_remise": "discount",
+            "promotion": "discount",
+
+            # Prix concurrent
+            "competitor_pricing": "competitor_pricing",
+            "prix_concurrent": "competitor_pricing",
+            "prixconcurrent": "competitor_pricing",
+            "competitor_price": "competitor_pricing",
+            "market_price": "competitor_pricing",
+
+            # Commandes
+            "units_ordered": "units_ordered",
+            "unites_commandees": "units_ordered",
+            "quantite_commandee": "units_ordered",
+            "ordered_units": "units_ordered",
+
+            # Météo
+            "weather_condition": "weather_condition",
+            "condition_meteo": "weather_condition",
+            "meteo": "weather_condition",
+
+            # Promotion jour férié
+            "holiday_promotion": "holiday_promotion",
+            "promotion_jour_ferie": "holiday_promotion",
+            "jour_ferie_promo": "holiday_promotion",
+            "promo_jour_ferie": "holiday_promotion",
+
+            # Saison
+            "seasonality": "seasonality",
+            "saisonnalite": "seasonality",
+            "saison": "seasonality",
+        },
+
+        "fournisseurs": {
+            "id": "id",
+            "nom": "nom",
+            "name": "nom",
+            "fournisseur": "nom",
+            "supplier": "nom",
+            "tel": "tel",
+            "telephone": "tel",
+            "phone": "tel",
+            "adresse": "adresse",
+            "address": "adresse",
+            "leadtimejours": "leadtimejours",
+            "lead_time_jours": "leadtimejours",
+            "lead_time": "leadtimejours",
+            "scorefiabilite": "scorefiabilite",
+            "score_fiabilite": "scorefiabilite",
+            "reliability_score": "scorefiabilite",
+        },
+
+        "commandes_fournisseurs": {
+            "id": "id",
+            "fournisseur_id": "fournisseur_id",
+            "supplier_id": "fournisseur_id",
+            "idcommande": "idcommande",
+            "id_commande": "idcommande",
+            "order_id": "idcommande",
+            "datecommande": "datecommande",
+            "date_commande": "datecommande",
+            "order_date": "datecommande",
+            "datereceptionprevue": "datereceptionprevue",
+            "date_reception_prevue": "datereceptionprevue",
+            "expected_receipt_date": "datereceptionprevue",
+            "datereceptionreelle": "datereceptionreelle",
+            "date_reception_reelle": "datereceptionreelle",
+            "real_receipt_date": "datereceptionreelle",
+            "statut": "statut",
+            "status": "statut",
+            "etat": "statut",
+        },
+
+        "lignes_commandes": {
+            "id": "id",
+            "commande_id": "commande_id",
+            "order_id": "commande_id",
+            "produit_id": "produit_id",
+            "product_id": "produit_id",
+            "id_produit": "produit_id",
+            "quantitecommandee": "quantitecommandee",
+            "quantite_commandee": "quantitecommandee",
+            "ordered_quantity": "quantitecommandee",
+            "quantiterecue": "quantiterecue",
+            "quantite_recue": "quantiterecue",
+            "received_quantity": "quantiterecue",
+            "prixachatunitaire": "prixachatunitaire",
+            "prix_achat_unitaire": "prixachatunitaire",
+            "purchase_unit_price": "prixachatunitaire",
+            "unit_cost": "prixachatunitaire",
+        },
+
+        "ventes": {
+            "id": "id",
+            "datevente": "datevente",
+            "date_vente": "datevente",
+            "date": "datevente",
+            "sale_date": "datevente",
+            "source": "source",
+            "canal": "source",
+            "channel": "source",
+            "statut": "statut",
+            "status": "statut",
+            "etat": "statut",
+        },
+
+        "lignes_ventes": {
+            "id": "id",
+            "vente_id": "vente_id",
+            "sale_id": "vente_id",
+            "id_vente": "vente_id",
+            "produit_id": "produit_id",
+            "product_id": "produit_id",
+            "id_produit": "produit_id",
+            "quantite": "quantite",
+            "quantity": "quantite",
+            "qty": "quantite",
+            "quantite_vendue": "quantite",
+            "prixventeunitaire": "prixventeunitaire",
+            "prix_vente_unitaire": "prixventeunitaire",
+            "prix_unitaire": "prixventeunitaire",
+            "unit_price": "prixventeunitaire",
+            "price": "prixventeunitaire",
+        },
+
+        "promotions": {
+            "id": "id",
+            "nom": "nom",
+            "name": "nom",
+            "type": "type",
+            "valeur": "valeur",
+            "value": "valeur",
+            "datedebut": "datedebut",
+            "date_debut": "datedebut",
+            "start_date": "datedebut",
+            "datefin": "datefin",
+            "date_fin": "datefin",
+            "end_date": "datefin",
+            "stockminimumrequis": "stockminimumrequis",
+            "stock_minimum_requis": "stockminimumrequis",
+            "actif": "actif",
+            "active": "actif",
+            "prixpromo": "prixpromo",
+            "prix_promo": "prixpromo",
+            "promo_price": "prixpromo",
+        },
+
+        "produit_promotion": {
+            "produit_id": "produit_id",
+            "product_id": "produit_id",
+            "promotion_id": "promotion_id",
+            "promo_id": "promotion_id",
+            "prixpromo": "prixpromo",
+            "prix_promo": "prixpromo",
+            "promo_price": "prixpromo",
+        },
+
+        "mouvement_stock": {
+            "produit_id": "produit_id",
+            "product_id": "produit_id",
+            "id_produit": "produit_id",
+            "type": "type",
+            "mouvement": "type",
+            "movement_type": "type",
+            "quantite": "quantite",
+            "quantity": "quantite",
+            "qty": "quantite",
+            "datemouvement": "datemouvement",
+            "date_mouvement": "datemouvement",
+            "date": "datemouvement",
+            "movement_date": "datemouvement",
+            "justification": "justification",
+            "motif": "justification",
+            "reason": "justification",
+        },
     }
 
     aliases = aliases_by_table.get(table_name, {})
@@ -288,17 +650,24 @@ def _apply_column_aliases(df: pd.DataFrame, table_name: str) -> pd.DataFrame:
     if not aliases:
         return df
 
-    rename_map = {}
+    normalized_aliases = {
+        _normalize_column_name(source): target
+        for source, target in aliases.items()
+    }
 
-    for column in df.columns:
-        normalized = str(column).strip()
-        target = aliases.get(normalized)
+    result = pd.DataFrame(index=df.index)
 
-        if target:
-            rename_map[column] = target
+    for original_column in df.columns:
+        normalized_column = _normalize_column_name(original_column)
+        target_column = normalized_aliases.get(normalized_column, normalized_column)
 
-    return df.rename(columns=rename_map)
+        # Si plusieurs colonnes veulent dire la même chose, on garde la première valeur non vide.
+        if target_column in result.columns:
+            result[target_column] = result[target_column].combine_first(df[original_column])
+        else:
+            result[target_column] = df[original_column]
 
+    return result
 
 def _normalize_rows_after_cleaning(table_name: str, rows: list[dict]) -> list[dict]:
     normalized = []
@@ -332,6 +701,186 @@ def _normalize_rows_after_cleaning(table_name: str, rows: list[dict]) -> list[di
     return normalized
 
 
+def _get_first_existing(row: dict, *keys):
+    for key in keys:
+        if key in row and row.get(key) is not None:
+            return row.get(key)
+    return None
+
+
+def _clean_sales_history_row(row: dict) -> dict:
+    """
+    Nettoie une ligne historique avec compatibilité français/anglais.
+    Le stock_service accepte les alias Pydantic anglais (store_id/product_id/sales/price),
+    mais on garde aussi les champs français pour compatibilité interne.
+    """
+    units_sold = _safe_float(
+        _get_first_existing(
+            row,
+            "units_sold",
+            "sales",
+            "ventes",
+            "quantite_vendue",
+            "quantity_sold",
+            "qty_sold",
+            "nombre_ventes",
+        )
+    )
+
+    inventory_level = _safe_float(
+        _get_first_existing(
+            row,
+            "inventory_level",
+            "stock",
+            "stock_disponible",
+            "niveau_stock",
+            "available_stock",
+        )
+    )
+
+    price = _safe_float(
+        _get_first_existing(
+            row,
+            "price",
+            "prix",
+            "prix_vente",
+            "prixvente",
+            "sale_price",
+            "selling_price",
+        )
+    )
+
+    store_id = _safe_str(
+        _get_first_existing(
+            row,
+            "store_id",
+            "magasin_id",
+            "magasin",
+            "store",
+            "shop",
+            "boutique",
+        )
+    )
+
+    product_id = _safe_str(
+        _get_first_existing(
+            row,
+            "product_id",
+            "produit_id",
+            "sku",
+            "reference",
+            "ref",
+            "code_produit",
+        )
+    )
+
+    category = _safe_str(
+        _get_first_existing(
+            row,
+            "category",
+            "categorie",
+            "famille",
+            "famille_produit",
+            "familleproduit",
+            "categorie_produit",
+            "product_category",
+            "type_produit",
+        )
+    )
+
+    discount = _safe_float(
+        _get_first_existing(
+            row,
+            "discount",
+            "remise",
+            "taux_remise",
+            "promotion",
+        )
+    )
+
+    competitor_pricing = _safe_float(
+        _get_first_existing(
+            row,
+            "competitor_pricing",
+            "prix_concurrent",
+            "competitor_price",
+            "market_price",
+        )
+    )
+
+    units_ordered = _safe_float(
+        _get_first_existing(
+            row,
+            "units_ordered",
+            "unites_commandees",
+            "quantite_commandee",
+            "ordered_units",
+        )
+    )
+
+    weather_condition = _safe_str(
+        _get_first_existing(
+            row,
+            "weather_condition",
+            "condition_meteo",
+            "meteo",
+        )
+    )
+
+    holiday_promotion = _safe_int(
+        _get_first_existing(
+            row,
+            "holiday_promotion",
+            "promotion_jour_ferie",
+            "jour_ferie_promo",
+            "promo_jour_ferie",
+        )
+    )
+
+    seasonality = _safe_str(
+        _get_first_existing(
+            row,
+            "seasonality",
+            "saisonnalite",
+            "saison",
+        )
+    )
+
+    return {
+        # Champs anglais envoyés au stock_service via alias Pydantic.
+        "date": _safe_str(_get_first_existing(row, "date", "date_vente", "sale_date")),
+        "store_id": store_id,
+        "product_id": product_id,
+        "category": category,
+        "region": _safe_str(_get_first_existing(row, "region", "ville", "city", "zone")),
+        "units_sold": units_sold,
+        "sales": units_sold,
+        "inventory_level": inventory_level,
+        "stock": inventory_level,
+        "price": price,
+        "discount": discount,
+        "competitor_pricing": competitor_pricing,
+        "units_ordered": units_ordered,
+        "demand_forecast": _safe_float(row.get("demand_forecast")),
+        "weather_condition": weather_condition,
+        "holiday_promotion": holiday_promotion,
+        "seasonality": seasonality,
+        "timestamp": _safe_str(row.get("timestamp")),
+
+        # Champs français gardés pour compatibilité avec d'autres traitements.
+        "magasin_id": store_id,
+        "produit_id": product_id,
+        "categorie": category,
+        "ventes": units_sold,
+        "prix": price,
+        "remise": discount,
+        "prix_concurrent": competitor_pricing,
+        "unites_commandees": units_ordered,
+        "condition_meteo": weather_condition,
+        "promotion_jour_ferie": holiday_promotion,
+        "saisonnalite": seasonality,
+    }
+
 def clean_records(df: pd.DataFrame, table_name: str) -> list[dict]:
     df = df.copy()
     df = _apply_column_aliases(df, table_name)
@@ -343,7 +892,9 @@ def clean_records(df: pd.DataFrame, table_name: str) -> list[dict]:
     cleaned = []
 
     for row in df.to_dict(orient="records"):
-        if schema:
+        if table_name == "sales_history":
+            cleaned_row = _clean_sales_history_row(row)
+        elif schema:
             cleaned_row = {
                 field: _CONVERTERS[dtype](row.get(field))
                 for field, dtype in schema.items()
@@ -357,7 +908,6 @@ def clean_records(df: pd.DataFrame, table_name: str) -> list[dict]:
         cleaned.append(cleaned_row)
 
     return _normalize_rows_after_cleaning(table_name, cleaned)
-
 
 async def _send_chunks(
     endpoint: str,
@@ -521,6 +1071,15 @@ async def import_single_file(file: UploadFile, db: Session, upsert: bool = False
                 }
             ],
         )
+        if result.get("status") == "success":
+            result["activity_log"] = await notify_stock_import_activity(
+                {
+                    "filename": filename,
+                    "table": result.get("table", "unknown"),
+                    "rows_imported": result.get("rows_imported", 0),
+                    "target_service": result.get("target_service"),
+                }
+            )
 
         return result
 

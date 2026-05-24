@@ -31,7 +31,7 @@ class ScrapingServiceClient:
                     "competitor_name": competitor_name,
                     "site_url": site_url,
                 },
-                timeout=(10, 120),
+                timeout=(10, 300),
             )
 
             if response.status_code == 504:
@@ -51,7 +51,7 @@ class ScrapingServiceClient:
                 "status": "timeout",
                 "catalogs": [],
                 "keywords": [],
-                "error": "La découverte du site a dépassé le délai autorisé.",
+                "error": "La découverte du site a pris trop de temps côté stock_service.",
             }
 
         except requests.exceptions.ConnectionError as e:
@@ -88,6 +88,96 @@ class ScrapingServiceClient:
                 "error": str(e),
             }
             
+
+    def run_product_job_now(
+        self,
+        product_ids: list[int],
+        fast: bool = True,
+        debug: bool = False,
+        launched_by_user_id: int | None = None,
+    ) -> dict:
+        """
+        Lance un seul job scraping produit côté scraping_service.
+
+        Important :
+        - Cette méthode ne considère pas le scraping comme terminé.
+        - Elle crée un job asynchrone dans scraping_service.
+        - Le scraping_service notifiera ensuite stock_service à la fin du job.
+        """
+        clean_ids = []
+        for value in product_ids or []:
+            try:
+                product_id = int(value)
+                if product_id > 0 and product_id not in clean_ids:
+                    clean_ids.append(product_id)
+            except Exception:
+                continue
+
+        if not clean_ids:
+            return {
+                "status": "error",
+                "error": "Aucun product_id valide pour lancer le scraping.",
+            }
+
+        payload = {
+            "product_ids": clean_ids,
+            "fast": fast,
+            "debug": debug,
+            "launched_by_user_id": launched_by_user_id,
+        }
+
+        try:
+            response = self.session.post(
+                f"{self.base_url}/jobs/product-run-now",
+                json=payload,
+                timeout=(10, 60),
+            )
+
+            if response.status_code == 504:
+                return {
+                    "status": "timeout",
+                    "error": "Le lancement du job scraping a dépassé le délai autorisé.",
+                }
+
+            response.raise_for_status()
+            data = response.json()
+
+            return {
+                **data,
+                "status": data.get("status") or "scheduled",
+                "product_ids": clean_ids,
+            }
+
+        except requests.exceptions.ConnectionError as e:
+            logger.warning(f"scraping_service inaccessible: {e}")
+            return {
+                "status": "error",
+                "error": (
+                    "scraping_service est inaccessible. "
+                    "Vérifie que le conteneur scraping_service est bien lancé."
+                ),
+            }
+
+        except requests.exceptions.HTTPError as e:
+            logger.warning(f"Erreur HTTP scraping_service: {e}")
+            try:
+                detail = response.json()
+            except Exception:
+                detail = response.text
+
+            return {
+                "status": "error",
+                "error": detail,
+            }
+
+        except Exception as e:
+            logger.warning(f"Lancement job scraping produits échoué: {e}")
+            return {
+                "status": "error",
+                "error": str(e),
+            }
+
+
     def search_product_on_competitors(
         self,
         product: dict,

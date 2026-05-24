@@ -12,15 +12,11 @@ class User(Base):
 
     id = Column(Integer, primary_key=True, index=True)
 
-    # On garde prenom + nom seulement. Pas de nom_complet pour éviter la redondance.
     prenom = Column(String(100), nullable=False)
     nom = Column(String(100), nullable=False)
-
     email = Column(String(255), unique=True, index=True, nullable=False)
     mot_de_passe_hash = Column(String(255), nullable=True)
 
-    # Un utilisateur peut avoir plusieurs rôles.
-    # Exemple: ["STOCK_MANAGER", "PRICING_MANAGER"]
     roles = Column(JSON, nullable=False, default=list)
 
     telephone = Column(String(30), nullable=True)
@@ -34,7 +30,10 @@ class User(Base):
     cree_le = Column(DateTime, default=datetime.utcnow, nullable=False)
     modifie_le = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
 
+    mot_de_passe_modifie_le = Column("password_updated_at", DateTime, nullable=True)
+
     jetons = relationship("Token", back_populates="utilisateur", cascade="all, delete-orphan")
+    journaux_authentification = relationship("JournalAuthentification", back_populates="utilisateur")
 
     @property
     def nom_affichage(self) -> str:
@@ -44,23 +43,26 @@ class User(Base):
         role_value = role.value if isinstance(role, UserRole) else str(role)
         return role_value in (self.roles or [])
 
-    # Alias pour ne pas casser les anciens endroits qui lisaient nom_complet.
+
+
+
+
+
     @property
-    def nom_complet(self):
+    def nom_complet(self) -> str:
         return self.nom_affichage
 
     @nom_complet.setter
-    def nom_complet(self, value):
+    def nom_complet(self, value: str) -> None:
         value = (value or "").strip()
-        parts = value.split()
-        if len(parts) <= 1:
+        parties = value.split()
+        if len(parties) <= 1:
             self.prenom = value
             self.nom = ""
         else:
-            self.prenom = parts[0]
-            self.nom = " ".join(parts[1:])
+            self.prenom = parties[0]
+            self.nom = " ".join(parties[1:])
 
-    # Alias pour éviter de casser brutalement un ancien code qui utilise role.
     @property
     def role(self):
         if not self.roles:
@@ -77,65 +79,9 @@ class User(Base):
             self.roles = [str(value)]
 
     @property
-    def full_name(self):
-        return self.nom_affichage
+    def password_updated_at(self):
+        return self.mot_de_passe_modifie_le
 
-    @full_name.setter
-    def full_name(self, value):
-        self.nom_complet = value
-
-    @property
-    def first_name(self):
-        return self.prenom
-
-    @first_name.setter
-    def first_name(self, value):
-        self.prenom = value
-
-    @property
-    def last_name(self):
-        return self.nom
-
-    @last_name.setter
-    def last_name(self, value):
-        self.nom = value
-
-    @property
-    def password_hash(self):
-        return self.mot_de_passe_hash
-
-    @password_hash.setter
-    def password_hash(self, value):
-        self.mot_de_passe_hash = value
-
-    @property
-    def phone(self):
-        return self.telephone
-
-    @phone.setter
-    def phone(self, value):
-        self.telephone = value
-
-    @property
-    def birth_date(self):
-        return self.date_naissance
-
-    @birth_date.setter
-    def birth_date(self, value):
-        self.date_naissance = value
-
-    @property
-    def is_active(self):
-        return self.est_actif
-
-    @is_active.setter
-    def is_active(self, value):
-        self.est_actif = value
-
-    @property
-    def email_verified(self):
-        return self.email_verifie
-
-    @email_verified.setter
-    def email_verified(self, value):
-        self.email_verifie = value
+    @password_updated_at.setter
+    def password_updated_at(self, value):
+        self.mot_de_passe_modifie_le = value

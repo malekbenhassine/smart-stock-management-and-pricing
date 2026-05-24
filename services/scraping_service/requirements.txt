@@ -3,5 +3,7 @@ uvicorn
 requests
 beautifulsoup4
 lxml
+python-dotenv
 pydantic
 httpx==0.28.1
+cloudscraper

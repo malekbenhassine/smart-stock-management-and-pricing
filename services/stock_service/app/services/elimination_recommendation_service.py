@@ -359,7 +359,7 @@ def _sales_stats_for_sku(db: Session, sku: str | None, anchor_date: date, days: 
     Calcule les ventes utilisées par la recommandation d'élimination.
 
     ANCIENNE LOGIQUE :
-    - lisait uniquement SalesHistory.product_id == sku.
+    - lisait uniquement SalesHistory.produit_id == sku.
 
     NOUVELLE LOGIQUE :
     - SalesHistory par SKU ;
@@ -400,20 +400,20 @@ def _sales_stats_for_sku(db: Session, sku: str | None, anchor_date: date, days: 
     # ------------------------------------------------------------------
     history_rows = (
         db.query(SalesHistory)
-        .filter(SalesHistory.product_id == sku)
+        .filter(SalesHistory.produit_id == sku)
         .filter(SalesHistory.date >= period_start)
         .filter(SalesHistory.date <= anchor_date)
         .all()
     )
 
     rows_count += len(history_rows)
-    total_sales += sum(_safe_float(row.sales, 0) for row in history_rows)
-    has_discount_signal = any(_safe_float(row.discount, 0) > 0 for row in history_rows)
+    total_sales += sum(_safe_float(row.ventes, 0) for row in history_rows)
+    has_discount_signal = any(_safe_float(row.remise, 0) > 0 for row in history_rows)
 
     history_last_sale = (
         db.query(func.max(SalesHistory.date))
-        .filter(SalesHistory.product_id == sku)
-        .filter(SalesHistory.sales > 0)
+        .filter(SalesHistory.produit_id == sku)
+        .filter(SalesHistory.ventes > 0)
         .scalar()
     )
     if history_last_sale:

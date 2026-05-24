@@ -5,7 +5,7 @@ from typing import Any
 
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
-
+from app.services.alert_event_client import emit_alert_event
 from app.models.tables import (
     DemandeModificationPrix,
     JournalActivite,
@@ -20,7 +20,57 @@ def _round(value):
         return None
     return round(float(value), 2)
 
+def _emit_manager_price_decision_alert(
+    *,
+    event_type: str,
+    produit: Product | None,
+    demande: DemandeModificationPrix,
+    commentaire_manager: str | None,
+    nom_manager: str | None,
+) -> None:
+    """
+    Envoie une alerte au responsable pricing quand le manager accepte/refuse
+    une demande de modification de prix.
 
+    Important :
+    emit_alert_event ne doit jamais bloquer le workflow manager.
+    Si alerts_service est indisponible, la validation/refus doit quand même réussir.
+    """
+    product_name = produit.nom if produit else f"Produit #{demande.produit_id}"
+
+    if event_type == "PRICE_CHANGE_REQUEST_APPROVED":
+        message = (
+            f"Le manager a accepté la modification de prix pour {product_name}. "
+            f"Ancien prix : {demande.ancien_prix} TND, nouveau prix : {demande.nouveau_prix} TND."
+        )
+        priority = "MEDIUM"
+    else:
+        message = (
+            f"Le manager a refusé la modification de prix pour {product_name}. "
+            f"Le responsable pricing doit proposer ou fixer un nouveau prix."
+        )
+        priority = "IMPORTANT"
+
+    emit_alert_event(
+        event_type=event_type,
+        source_service="stock_service",
+        target_role="PRICING",
+        product_id=demande.produit_id,
+        product_name=product_name,
+        value=demande.nouveau_prix,
+        metadata={
+            "message": message,
+            "priority": priority,
+            "demande_id": demande.id,
+            "ancien_prix": demande.ancien_prix,
+            "nouveau_prix": demande.nouveau_prix,
+            "variation_pourcentage": demande.variation_pourcentage,
+            "commentaire_manager": commentaire_manager,
+            "manager": nom_manager,
+            "statut_demande": demande.statut,
+        },
+    )
+    
 def enregistrer_activite(
     db: Session,
     *,
@@ -92,19 +142,22 @@ def valider_demande_modification_prix_service(
     nom_manager: str | None = "MANAGER",
 ) -> dict:
     demande = db.query(DemandeModificationPrix).filter(DemandeModificationPrix.id == demande_id).first()
+
     if not demande:
         raise HTTPException(status_code=404, detail="Demande de modification de prix introuvable")
+
     if demande.statut != "EN_ATTENTE_MANAGER":
         raise HTTPException(status_code=400, detail=f"Demande déjà traitée : {demande.statut}")
 
     produit = db.query(Product).filter(Product.id == demande.produit_id).first()
+
     if not produit:
         raise HTTPException(status_code=404, detail="Produit associé introuvable")
 
     produit.prix_vente = demande.nouveau_prix
     produit.statut_prix = "PRIX_VALIDE"
     produit.date_validation_prix = datetime.utcnow()
-    produit.note_validation_prix = demande.justification
+    produit.note_validation_prix = commentaire_manager
 
     demande.statut = "VALIDEE_MANAGER"
     demande.valide_par = nom_manager
@@ -119,7 +172,10 @@ def valider_demande_modification_prix_service(
         type_entite="DEMANDE_MODIFICATION_PRIX",
         entite_id=demande.id,
         produit_id=produit.id,
-        description=f"Le manager a validé le passage du prix de {demande.ancien_prix} à {demande.nouveau_prix} pour le produit {produit.nom}.",
+        description=(
+            f"Le manager a validé le passage du prix de "
+            f"{demande.ancien_prix} à {demande.nouveau_prix} pour le produit {produit.nom}."
+        ),
         donnees={
             "ancienPrix": demande.ancien_prix,
             "nouveauPrix": demande.nouveau_prix,
@@ -132,13 +188,25 @@ def valider_demande_modification_prix_service(
     db.refresh(demande)
     db.refresh(produit)
 
+    _emit_manager_price_decision_alert(
+        event_type="PRICE_CHANGE_REQUEST_APPROVED",
+        produit=produit,
+        demande=demande,
+        commentaire_manager=commentaire_manager,
+        nom_manager=nom_manager,
+    )
+
     return {
         "status": "VALIDEE_MANAGER",
         "message": "Modification de prix validée par le manager.",
         "demande": serializer_demande(demande),
-        "produit": {"id": produit.id, "nom": produit.nom, "prixVente": produit.prix_vente},
+        "produit": {
+            "id": produit.id,
+            "nom": produit.nom,
+            "prixVente": produit.prix_vente,
+            "statutPrix": produit.statut_prix,
+        },
     }
-
 
 def refuser_demande_modification_prix_service(
     db: Session,
@@ -147,8 +215,10 @@ def refuser_demande_modification_prix_service(
     nom_manager: str | None = "MANAGER",
 ) -> dict:
     demande = db.query(DemandeModificationPrix).filter(DemandeModificationPrix.id == demande_id).first()
+
     if not demande:
         raise HTTPException(status_code=404, detail="Demande de modification de prix introuvable")
+
     if demande.statut != "EN_ATTENTE_MANAGER":
         raise HTTPException(status_code=400, detail=f"Demande déjà traitée : {demande.statut}")
 
@@ -159,6 +229,13 @@ def refuser_demande_modification_prix_service(
     demande.date_validation = datetime.utcnow()
     demande.commentaire_manager = commentaire_manager
 
+    if produit:
+        # Important :
+        # Le prix n'est pas modifié, mais le produit doit revenir chez le pricing
+        # pour qu'il puisse proposer ou fixer un nouveau prix.
+        produit.statut_prix = "EN_ATTENTE_PRICING"
+        produit.note_validation_prix = commentaire_manager
+
     enregistrer_activite(
         db,
         role_utilisateur="MANAGER",
@@ -167,7 +244,10 @@ def refuser_demande_modification_prix_service(
         type_entite="DEMANDE_MODIFICATION_PRIX",
         entite_id=demande.id,
         produit_id=demande.produit_id,
-        description=f"Le manager a refusé la modification de prix demandée pour {produit.nom if produit else 'le produit'}.",
+        description=(
+            f"Le manager a refusé la modification de prix demandée pour "
+            f"{produit.nom if produit else 'le produit'}."
+        ),
         donnees={
             "ancienPrix": demande.ancien_prix,
             "nouveauPrix": demande.nouveau_prix,
@@ -179,12 +259,31 @@ def refuser_demande_modification_prix_service(
     db.commit()
     db.refresh(demande)
 
+    if produit:
+        db.refresh(produit)
+
+    _emit_manager_price_decision_alert(
+        event_type="PRICE_CHANGE_REQUEST_REJECTED",
+        produit=produit,
+        demande=demande,
+        commentaire_manager=commentaire_manager,
+        nom_manager=nom_manager,
+    )
+
     return {
         "status": "REFUSEE_MANAGER",
-        "message": "Modification de prix refusée par le manager. Le prix actuel du produit n'a pas changé.",
+        "message": (
+            "Modification de prix refusée par le manager. "
+            "Le produit est renvoyé au responsable pricing pour refixer le prix."
+        ),
         "demande": serializer_demande(demande),
+        "produit": {
+            "id": produit.id if produit else demande.produit_id,
+            "nom": produit.nom if produit else None,
+            "prixVente": produit.prix_vente if produit else None,
+            "statutPrix": produit.statut_prix if produit else "EN_ATTENTE_PRICING",
+        },
     }
-
 
 def lister_ventes_manager_service(db: Session, limit: int = 100) -> dict:
     ventes = db.query(Sale).order_by(Sale.id.desc()).limit(limit).all()

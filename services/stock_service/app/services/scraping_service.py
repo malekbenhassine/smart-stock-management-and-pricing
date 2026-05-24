@@ -10,10 +10,17 @@ import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed, TimeoutError as FuturesTimeoutError
 import requests
 import urllib3
+import warnings
 
-from bs4 import BeautifulSoup
+try:
+    import cloudscraper
+except Exception:  # cloudscraper est optionnel mais recommandé pour Infotec/WordPress anti-bot
+    cloudscraper = None
+
+from bs4 import BeautifulSoup, XMLParsedAsHTMLWarning
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+warnings.filterwarnings("ignore", category=XMLParsedAsHTMLWarning)
 
 from app.schemas.scraping_schemas import (
     CompetitorModel,
@@ -229,8 +236,11 @@ class ScrapingService:
                 "AppleWebKit/537.36 (KHTML, like Gecko) "
                 "Chrome/124.0.0.0 Safari/537.36"
             ),
-            "Accept-Language": "fr,en;q=0.9",
-            "Accept": "text/html,application/xhtml+xml,*/*;q=0.8",
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+            "Accept-Language": "fr-FR,fr;q=0.9,en;q=0.8",
+            "Cache-Control": "no-cache",
+            "Pragma": "no-cache",
+            "Upgrade-Insecure-Requests": "1",
         })
 
     def _absolute_url(self, base_url: str, href: Optional[str]) -> Optional[str]:
@@ -257,6 +267,9 @@ class ScrapingService:
             "jolisearch",
             "controller=search",
             "submit_search",
+            "post_type=product",
+            "?s=",
+            "&s=",
             "orderby=",
             "orderway=",
             "search_query=",
@@ -376,28 +389,81 @@ class ScrapingService:
         return self._clean_product_url(current_url) or current_url
     
     def _get_html(self, url: str, timeout_seconds: int = 10) -> str:
-        """FIX timeout: 20s→10s, retry 2→1 pour éviter le double délai."""
+        """Récupère le HTML avec retry adapté aux sites WooCommerce comme Infotec."""
         try:
-            response = self.session.get(
-                url,
-                timeout=(5, timeout_seconds),
-                allow_redirects=True,
-                verify=False,
-            )
-            response.raise_for_status()
+            response = self._get_response_raw(url, timeout_seconds=timeout_seconds)
             return response.text
 
         except Exception as exc:
             raise RuntimeError(f"Echec récupération HTML pour {url}: {exc}")
 
     def _get_response_raw(self, url: str, timeout_seconds: int = 10) -> "requests.Response":
-        """Retourne la Response brute (pour détecter JSON vs HTML)."""
+        """
+        Retourne la Response brute avec headers navigateur.
+
+        Correction Infotec : ce site WordPress/WooCommerce renvoie souvent 406
+        avec requests classique. On tente donc :
+        1) requests normal avec headers navigateur complets
+        2) retry avec headers renforcés
+        3) fallback cloudscraper si installé
+        """
+        parsed = urlparse(url)
+        root = f"{parsed.scheme or 'https'}://{parsed.netloc}" if parsed.netloc else ""
+
+        base_headers = {
+            "User-Agent": (
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) "
+                "Chrome/124.0.0.0 Safari/537.36 Edg/124.0.0.0"
+            ),
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+            "Accept-Language": "fr-FR,fr;q=0.9,en-US;q=0.8,en;q=0.7",
+            "Cache-Control": "no-cache",
+            "Pragma": "no-cache",
+            "Upgrade-Insecure-Requests": "1",
+        }
+        if root:
+            base_headers["Referer"] = root + "/"
+
         response = self.session.get(
             url,
+            headers=base_headers,
             timeout=(5, timeout_seconds),
             allow_redirects=True,
             verify=False,
         )
+
+        if response.status_code in {403, 406, 429}:
+            retry_headers = {
+                **base_headers,
+                "Sec-Fetch-Dest": "document",
+                "Sec-Fetch-Mode": "navigate",
+                "Sec-Fetch-Site": "none",
+                "Sec-Fetch-User": "?1",
+            }
+            response = self.session.get(
+                url,
+                headers=retry_headers,
+                timeout=(5, timeout_seconds),
+                allow_redirects=True,
+                verify=False,
+            )
+
+        if response.status_code in {403, 406, 429} and cloudscraper is not None:
+            try:
+                scraper = cloudscraper.create_scraper(
+                    browser={"browser": "chrome", "platform": "windows", "desktop": True}
+                )
+                response = scraper.get(
+                    url,
+                    headers=base_headers,
+                    timeout=(5, timeout_seconds),
+                    allow_redirects=True,
+                    verify=False,
+                )
+            except Exception:
+                pass
+
         response.raise_for_status()
         return response
 
@@ -503,6 +569,89 @@ class ScrapingService:
                 concurrent_id=competitor.id,
                 produit_id=(product or {}).get("id") or (product or {}).get("product_id"),
                 prixConcurrent=prix_concurrent,
+                ancienPrixConcurrent=None,
+                isPromo=False,
+                disponibilite=None,
+                dateCollecte=datetime.utcnow().isoformat(),
+                fiable=True,
+            ))
+
+        return items
+
+
+    def _extract_products_from_generic_json(
+        self,
+        raw_json: str,
+        competitor: "CompetitorModel",
+        page_url: str,
+    ) -> list["ProductCompetitorPayload"]:
+        """
+        Parse les réponses JSON génériques WordPress/WooCommerce.
+        Exemple Infotec : /wp-json/wp/v2/search?... retourne title + url.
+        S'il n'y a pas de prix dans le JSON, on garde quand même l'URL :
+        le code ouvrira ensuite la fiche détail pour extraire le prix réel.
+        """
+        import json as _json
+
+        try:
+            data = _json.loads(raw_json)
+        except Exception:
+            return []
+
+        if isinstance(data, dict):
+            records = None
+            for key in ("items", "products", "data", "results", "result"):
+                if isinstance(data.get(key), list):
+                    records = data.get(key)
+                    break
+            if records is None:
+                records = [data]
+        elif isinstance(data, list):
+            records = data
+        else:
+            return []
+
+        items: list[ProductCompetitorPayload] = []
+        seen: set[str] = set()
+
+        for rec in records:
+            if not isinstance(rec, dict):
+                continue
+
+            raw_url = (
+                rec.get("url")
+                or rec.get("link")
+                or rec.get("permalink")
+                or rec.get("product_url")
+                or rec.get("href")
+            )
+            url_produit = self._clean_product_url(self._absolute_url(page_url, raw_url)) if raw_url else None
+            if not url_produit or url_produit in seen:
+                continue
+            if self._is_search_or_listing_url(url_produit):
+                continue
+            if not self._is_probable_product_url(url_produit):
+                continue
+
+            raw_title = rec.get("title") or rec.get("name") or rec.get("post_title") or ""
+            if isinstance(raw_title, dict):
+                raw_title = raw_title.get("rendered") or raw_title.get("raw") or ""
+            name = normalize_text(str(raw_title))
+            if not name:
+                name = urlparse(url_produit).path.rstrip("/").split("/")[-1].replace("-", " ").title()
+
+            raw_price = rec.get("price") or rec.get("regular_price") or rec.get("sale_price")
+            price = extract_price_from_text(str(raw_price)) if raw_price is not None else None
+
+            seen.add(url_produit)
+            items.append(ProductCompetitorPayload(
+                urlProduit=url_produit,
+                skuConcurrent=normalize_text(str(rec.get("sku") or rec.get("ref") or "")) or None,
+                nomProduit=name,
+                descriptionConcurrent=normalize_text(str(rec.get("description") or rec.get("excerpt") or name)),
+                concurrent_id=competitor.id,
+                produit_id=None,
+                prixConcurrent=price,
                 ancienPrixConcurrent=None,
                 isPromo=False,
                 disponibilite=None,
@@ -2005,11 +2154,20 @@ class ScrapingService:
     def _reference_variants(self, reference: str) -> set[str]:
         """
         Génère les variantes d'une référence.
-        BK-7092 -> bk-7092 / bk7092 / bk 7092
+        Corrige les références Apple avec slash :
+        MRXQ3FN/A -> mrxq3fn/a, mrxq3fn a, mrxq3fna, mrxq3fn-a
         """
-        ref = self._normalize_reference_text(reference)
+        raw = str(reference or "").strip()
+        ref = self._normalize_reference_text(raw)
         if not ref:
             return set()
+
+        # Version qui garde le slash pour les références Apple constructeur.
+        slash_ref = raw.lower().strip()
+        slash_ref = slash_ref.replace("é", "e").replace("è", "e").replace("ê", "e")
+        slash_ref = slash_ref.replace("à", "a").replace("ù", "u")
+        slash_ref = re.sub(r"[^a-z0-9\-/]+", " ", slash_ref)
+        slash_ref = re.sub(r"\s+", " ", slash_ref).strip()
 
         variants = {
             ref,
@@ -2017,6 +2175,16 @@ class ScrapingService:
             ref.replace(" ", ""),
             ref.replace("-", " "),
         }
+
+        if slash_ref:
+            variants.update({
+                slash_ref,
+                slash_ref.replace("/", " "),
+                slash_ref.replace("/", ""),
+                slash_ref.replace("/", "-"),
+                slash_ref.replace("/", "%2f"),
+                slash_ref.replace("/", "%2F"),
+            })
 
         compact = ref.replace("-", "").replace(" ", "")
         match = re.match(r"^([a-z]+)(\d+)$", compact)
@@ -2065,13 +2233,56 @@ class ScrapingService:
         return found[:3]
 
     def _extract_references_from_product(self, product: dict) -> list[str]:
-        sku = (product.get("sku") or "").strip()
-        if sku:
-            return [sku]
+        """
+        Retourne plusieurs vraies références au lieu de garder un SKU composé.
+        Exemple : "MRXQ3FN/A - APPLE176" doit donner :
+        ["MRXQ3FN/A", "APPLE176"]
+        Sinon le matching cherche la chaîne complète et rate les concurrents.
+        """
+        raw_values = [
+            product.get("sku") or "",
+            product.get("reference") or "",
+            product.get("ref") or "",
+        ]
 
-        nom = product.get("nom") or ""
+        nom = product.get("nom") or product.get("name") or ""
         description = product.get("description") or ""
-        return self._extract_reference_from_text_fallback(f"{nom} {description}")
+
+        refs: list[str] = []
+
+        def add_ref(value: str):
+            value = " ".join(str(value or "").split()).strip(" -_|,;()[]")
+            if not value:
+                return
+            low = value.lower()
+            if re.match(r"^pc\d+$", low):
+                return
+            if len(value) < 4 or len(value) > 40:
+                return
+            if low not in [x.lower() for x in refs]:
+                refs.append(value)
+
+        for raw in raw_values:
+            raw = str(raw or "").strip()
+            if not raw:
+                continue
+
+            # 1) garder la référence Apple avec slash
+            for m in re.findall(r"\b[A-Z0-9]{4,12}/[A-Z0-9]{1,6}\b", raw, flags=re.IGNORECASE):
+                add_ref(m)
+
+            # 2) séparer les SKU composés : MRXQ3FN/A - APPLE176
+            for part in re.split(r"\s*(?:-|–|—|\||,|;)\s*", raw):
+                add_ref(part)
+
+            # 3) codes alphanumériques classiques : APPLE176, X1502VA...
+            for m in re.findall(r"\b[A-Z]{2,12}\d{2,8}[A-Z0-9]*\b", raw, flags=re.IGNORECASE):
+                add_ref(m)
+
+        if not refs:
+            refs.extend(self._extract_reference_from_text_fallback(f"{nom} {description}"))
+
+        return refs[:6]
 
     def _dedupe_queries(self, queries: list[str], max_len: int = 20) -> list[str]:
         """
@@ -2260,6 +2471,33 @@ class ScrapingService:
                         f"Xiaomi {base}",
                         f"Écouteurs Xiaomi {base}",
                     ])
+
+            # Cas spécial Apple MacBook : certains sites indexent surtout le modèle commercial,
+            # pas la référence interne complète "MRXQ3FN/A - APPLE176".
+            if "apple" in nom_norm or self._quick_normalize(marque) == "apple":
+                refs = self._extract_references_from_product(product)
+                for ref in refs:
+                    if "/" in ref:
+                        name_queries.append(ref)
+                        name_queries.append(ref.replace("/", ""))
+                        name_queries.append(ref.replace("/", "-"))
+                        name_queries.append(f"Apple {ref}")
+                if "macbook" in nom_norm or "m3" in nom_norm:
+                    apple_base = "Apple MacBook Air M3"
+                    name_queries.extend([
+                        apple_base,
+                        "MacBook Air M3 13",
+                        "MacBook Air M3 13 8Go 256Go",
+                        "MacBook Air M3 13 8GB 256GB",
+                        "Apple MacBook Air 13 pouces M3",
+                    ])
+                    if "silver" in nom_norm or "argent" in nom_norm:
+                        name_queries.extend([
+                            "MacBook Air M3 13 Silver",
+                            "MacBook Air M3 13 Argent",
+                            "Apple MacBook Air M3 8Go 256Go Silver",
+                            "Apple MacBook Air M3 8Go 256Go Argent",
+                        ])
 
             # Cas générique : marque + 3/6 mots distinctifs du nom
             if useful_words:
@@ -2963,6 +3201,14 @@ class ScrapingService:
                 "https://carthagoinformatique.tn/boutique/?s={query}&post_type=product",
                 "https://carthagoinformatique.tn/?s={query}",
             ],
+            "infotec.tn": [
+                "https://infotec.tn/wp-json/wp/v2/search?search={query}&subtype=product&per_page=20",
+                "https://www.infotec.tn/wp-json/wp/v2/search?search={query}&subtype=product&per_page=20",
+                "https://infotec.tn/?s={query}&post_type=product",
+                "https://www.infotec.tn/?s={query}&post_type=product",
+                "https://infotec.tn/fr/?s={query}&post_type=product",
+                "https://infotec.tn/?s={query}",
+            ],
             "bestpc.tn": [
                 "https://www.bestpc.tn/?s={query}&post_type=product&type_aws=true",
                 "https://bestpc.tn/?s={query}&post_type=product&type_aws=true",
@@ -3088,8 +3334,10 @@ class ScrapingService:
         value = value.lower()
         value = value.replace("è", "e").replace("é", "e").replace("ê", "e")
         value = value.replace("à", "a").replace("ù", "u")
-        value = value.replace("go", "gb")
-        value = value.replace("g ", "gb ")
+        # FIX : remplacer "go"/"to" uniquement quand ce sont des unités de stockage
+        # (précédées d'un chiffre) pour ne pas corrompre des références comme "LOGO123" ou "CONGO".
+        value = re.sub(r"(\d+)\s*go\b", r"\1gb", value)
+        value = re.sub(r"(\d+)\s*to\b", r"\1tb", value)
         value = re.sub(r"[^a-z0-9\- ]+", " ", value)
         value = re.sub(r"\s+", " ", value).strip()
 
@@ -3238,300 +3486,6 @@ class ScrapingService:
         return [item for score, item in scored[:max_candidates]]
 
 
-
-    def _targeted_url_matches_product(self, url: str | None, product: dict) -> bool:
-        """
-        Filtre strict mais souple pour les URLs trouvées via sitemap/catalogue.
-        Objectif : retrouver les fiches produit même si le moteur de recherche interne
-        du concurrent ne retourne rien, sans accepter des produits hors sujet.
-        """
-        if not url:
-            return False
-        if self._is_search_or_listing_url(url):
-            return False
-        if not self._is_probable_product_url(url):
-            return False
-
-        url_text = self._quick_normalize(url.replace("/", " ").replace("-", " ").replace("_", " "))
-        compact = url_text.replace(" ", "").replace("-", "")
-        source = self._quick_normalize(" ".join([
-            str(product.get("nom") or product.get("name") or ""),
-            str(product.get("description") or ""),
-            str(product.get("marque") or product.get("brand") or ""),
-            str(product.get("sku") or ""),
-        ]))
-        source_compact = source.replace(" ", "").replace("-", "")
-        brand = self._quick_normalize(product.get("marque") or product.get("brand") or "")
-
-        # Cas smartphone : le modèle exact est obligatoire.
-        phone_context = any(w in source for w in [
-            "smartphone", "telephone", "galaxy", "iphone", "redmi", "oppo",
-            "xiaomi", "honor", "infinix", "tecno", "itel"
-        ])
-        phone_models = set()
-        for m in re.findall(r"\b(?:galaxy\s*)?([a-z]{1,4}\s?\d{1,3}[a-z]{0,3})\b", source):
-            model = m.replace(" ", "")
-            # éviter les faux modèles comme 4g / 5g / 12go / 128go
-            if model not in {"4g", "5g", "3g", "2g", "6go", "8go", "12go", "16go", "128go", "256go", "512go"}:
-                if re.search(r"[a-z]", model) and re.search(r"\d", model):
-                    phone_models.add(model)
-
-        if phone_context and phone_models:
-            if not any(m in compact for m in phone_models):
-                return False
-            # Pour Samsung, beaucoup d'URLs contiennent samsung ou galaxy.
-            if "samsung" in source and not ("samsung" in compact or "galaxy" in compact):
-                return False
-            # Si la capacité est dans le produit, elle doit aider le choix mais pas bloquer
-            # car certains slugs ne mentionnent pas la RAM étendue.
-            return True
-
-        # Cas générique : exiger un vrai code modèle ou plusieurs tokens distinctifs.
-        tokens = self._product_matching_tokens(product)
-        strong_tokens = [
-            t for t in tokens
-            if len(t) >= 3 and (re.search(r"\d", t) or t not in {brand, "pro", "plus", "max", "ultra"})
-        ]
-        if not strong_tokens:
-            return False
-
-        hits = 0
-        for token in strong_tokens:
-            t = token.replace(" ", "").replace("-", "")
-            if t and t in compact:
-                hits += 1
-
-        if any(re.search(r"[a-z]", t) and re.search(r"\d", t) and t.replace("-", "") in compact for t in strong_tokens):
-            return True
-
-        return hits >= min(2, len(strong_tokens))
-
-    def _extract_urls_from_sitemap_text(self, text: str) -> list[str]:
-        """Extrait les <loc> et les URLs brutes depuis un sitemap XML ou robots.txt."""
-        if not text:
-            return []
-        urls = []
-        seen = set()
-        for raw in re.findall(r"<loc>\s*([^<]+)\s*</loc>", text, flags=re.IGNORECASE):
-            raw = raw.strip()
-            if raw and raw not in seen:
-                seen.add(raw)
-                urls.append(raw)
-        for raw in re.findall(r"https?://[^\s<'\"]+", text, flags=re.IGNORECASE):
-            raw = raw.strip().rstrip(").,;]")
-            if raw and raw not in seen:
-                seen.add(raw)
-                urls.append(raw)
-        return urls
-
-    def _extract_products_from_sitemap_fallback(
-        self,
-        competitor: "CompetitorModel",
-        product: dict,
-        limit: int = 6,
-        budget_seconds: float = 10.0,
-    ) -> list[ProductCompetitorPayload]:
-        """
-        Fallback très important : certains sites ont le produit mais leur recherche interne
-        ne renvoie rien à requests. On lit robots.txt + sitemaps, puis on ouvre seulement
-        les URLs qui contiennent la signature du produit.
-        """
-        if budget_seconds <= 2:
-            return []
-
-        base_url = (competitor.site_url or "").rstrip("/")
-        if not base_url:
-            return []
-        parsed = urlparse(base_url)
-        scheme = parsed.scheme or "https"
-        host = parsed.netloc or parsed.path
-        root = f"{scheme}://{host}".rstrip("/")
-        deadline = time.monotonic() + budget_seconds
-
-        sitemap_urls: list[str] = []
-        seen_sitemaps: set[str] = set()
-        candidate_product_urls: list[str] = []
-        seen_products: set[str] = set()
-
-        def add_sitemap(u: str | None):
-            if not u:
-                return
-            u = self._absolute_url(root, u.strip())
-            if not u or u in seen_sitemaps:
-                return
-            if not u.startswith("http"):
-                return
-            seen_sitemaps.add(u)
-            sitemap_urls.append(u)
-
-        # robots.txt peut déclarer les vrais sitemaps.
-        try:
-            if time.monotonic() < deadline:
-                robots_resp = self._get_response_raw(f"{root}/robots.txt", timeout_seconds=4)
-                for u in self._extract_urls_from_sitemap_text(robots_resp.text):
-                    if "sitemap" in u.lower():
-                        add_sitemap(u)
-        except Exception:
-            pass
-
-        for u in [
-            f"{root}/sitemap.xml",
-            f"{root}/sitemap_index.xml",
-            f"{root}/product-sitemap.xml",
-            f"{root}/product-sitemap1.xml",
-            f"{root}/post-sitemap.xml",
-            f"{root}/1_index_sitemap.xml",
-            f"{root}/sitemap_products_1.xml",
-        ]:
-            add_sitemap(u)
-
-        # Parcourir sitemaps et sous-sitemaps avec budget.
-        idx = 0
-        while idx < len(sitemap_urls) and time.monotonic() < deadline and len(candidate_product_urls) < limit:
-            sitemap_url = sitemap_urls[idx]
-            idx += 1
-            try:
-                resp = self._get_response_raw(sitemap_url, timeout_seconds=max(2, min(5, int(deadline - time.monotonic()))))
-                urls = self._extract_urls_from_sitemap_text(resp.text)
-            except Exception:
-                continue
-
-            for u in urls:
-                low = u.lower()
-                # Sous-sitemap : on l'ajoute si pertinent.
-                if "sitemap" in low and (low.endswith(".xml") or ".xml" in low):
-                    if any(x in low for x in ["product", "produit", "post", "page", "1", "2", "3"]):
-                        add_sitemap(u)
-                    continue
-
-                clean = self._clean_product_url(u)
-                if not clean or clean in seen_products:
-                    continue
-                if self._targeted_url_matches_product(clean, product):
-                    seen_products.add(clean)
-                    candidate_product_urls.append(clean)
-                    if len(candidate_product_urls) >= limit:
-                        break
-
-        items: list[ProductCompetitorPayload] = []
-        for u in candidate_product_urls[:limit]:
-            if time.monotonic() >= deadline:
-                break
-            item = self._extract_product_from_detail_page(u, competitor)
-            if item:
-                item.produit_id = product.get("id") or product.get("product_id")
-                items.append(item)
-        return items
-
-    def _build_targeted_catalog_fallback_urls(self, competitor: "CompetitorModel", product: dict) -> list[str]:
-        """
-        Dernier fallback : pages catégories/marque probables. Ce n'est pas obligatoire
-        pour chaque nouveau concurrent, mais ça améliore fortement les sites TN connus.
-        Les nouveaux sites continuent à utiliser discovery + sitemap.
-        """
-        base_url = (competitor.site_url or "").rstrip("/")
-        if not base_url:
-            return []
-        parsed = urlparse(base_url)
-        scheme = parsed.scheme or "https"
-        host = parsed.netloc or parsed.path
-        root = f"{scheme}://{host}".rstrip("/")
-        domain = host.lower().replace("www.", "")
-        source = self._quick_normalize(" ".join([
-            str(product.get("nom") or product.get("name") or ""),
-            str(product.get("categorie") or product.get("category") or ""),
-            str(product.get("marque") or product.get("brand") or ""),
-        ]))
-        is_phone = any(w in source for w in ["smartphone", "telephone", "telephonie", "galaxy", "iphone", "redmi"])
-        urls: list[str] = []
-
-        def add(path: str):
-            u = path if path.startswith("http") else root + "/" + path.lstrip("/")
-            if u not in urls:
-                urls.append(u)
-
-        if is_phone:
-            # Génériques PrestaShop / WooCommerce.
-            add("recherche?controller=search&s=samsung%20galaxy%20a17")
-            add("?s=samsung%20galaxy%20a17&post_type=product")
-            add("?s=galaxy%20a17&post_type=product")
-
-            # Fallbacks connus utiles pour ton périmètre Tunisien.
-            if "spacenet.tn" in domain:
-                for path in ["713-galaxy", "1064-series-a", "telephone-samsung"]:
-                    add(path)
-            elif "zoom.com.tn" in domain:
-                for path in ["759-smartphone-android?page=7", "brand/3-samsung?page=2", "brand/3-samsung?page=3"]:
-                    add(path)
-            elif "carthagoinformatique.tn" in domain:
-                for path in [
-                    "categorie-produit/telephonie-et-tablette/smartphone-mobile/page/20/",
-                    "categorie-produit/telephonie-et-tablette/page/69/",
-                    "categorie-produit/telephonie-et-tablette/smartphone-mobile/?products_per_page=-1",
-                ]:
-                    add(path)
-
-        return urls[:8]
-
-    def _extract_products_from_targeted_catalog_pages(
-        self,
-        competitor: "CompetitorModel",
-        product: dict,
-        limit: int = 6,
-        budget_seconds: float = 10.0,
-    ) -> list[ProductCompetitorPayload]:
-        if budget_seconds <= 2:
-            return []
-        deadline = time.monotonic() + budget_seconds
-        all_items: list[ProductCompetitorPayload] = []
-        seen: set[str] = set()
-
-        for url in self._build_targeted_catalog_fallback_urls(competitor, product):
-            if time.monotonic() >= deadline or len(all_items) >= limit:
-                break
-            try:
-                resp = self._get_response_raw(url, timeout_seconds=max(2, min(6, int(deadline - time.monotonic()))))
-                html = resp.text
-                items, _, _, _, _ = self._extract_products_from_page(url, html, competitor)
-
-                # Si la page liste seulement des liens, ouvrir les détails pertinents.
-                soup = BeautifulSoup(html, "lxml")
-                detail_urls = self._extract_product_links_from_search_page(
-                    soup=soup,
-                    page_url=url,
-                    query=str(product.get("nom") or product.get("name") or ""),
-                    product=product,
-                    limit=limit,
-                )
-                for detail_url in detail_urls:
-                    if time.monotonic() >= deadline:
-                        break
-                    if not self._targeted_url_matches_product(detail_url, product):
-                        continue
-                    detail_item = self._extract_product_from_detail_page(detail_url, competitor)
-                    if detail_item:
-                        items.append(detail_item)
-
-                for item in items:
-                    if not item or not item.urlProduit:
-                        continue
-                    if item.urlProduit in seen:
-                        continue
-                    if not self._targeted_url_matches_product(item.urlProduit, product):
-                        # Si l'URL n'est pas assez parlante, on vérifie avec le nom.
-                        probe = ProductCompetitorPayload(**item.model_dump()) if hasattr(item, "model_dump") else item
-                        if not self._is_same_model_candidate(product, probe, self._extract_references_from_product(product)):
-                            continue
-                    item.produit_id = product.get("id") or product.get("product_id")
-                    seen.add(item.urlProduit)
-                    all_items.append(item)
-                    if len(all_items) >= limit:
-                        break
-            except Exception:
-                continue
-        return all_items
-
-
     def _search_one_competitor(
         self,
         competitor: "CompetitorModel",
@@ -3666,6 +3620,23 @@ class ScrapingService:
                                     competitor=competitor,
                                     product=product,
                                 )
+                                if not json_items:
+                                    json_items = self._extract_products_from_generic_json(
+                                        raw_json=raw_text,
+                                        competitor=competitor,
+                                        page_url=search_url,
+                                    )
+
+                                # Si le JSON donne seulement les URLs (cas WordPress Infotec),
+                                # on ouvre les fiches pour récupérer le prix + stock.
+                                detailed_from_json = []
+                                for ji in json_items[:min(4, detail_limit)]:
+                                    if ji.urlProduit and (ji.prixConcurrent is None) and _time_left() > 2:
+                                        detail_item = self._extract_product_from_detail_page(ji.urlProduit, competitor)
+                                        detailed_from_json.append(detail_item or ji)
+                                    else:
+                                        detailed_from_json.append(ji)
+                                json_items = [x for x in detailed_from_json if x]
                                 html = "<html><body></body></html>"
                             else:
                                 html = raw_text
@@ -3775,40 +3746,6 @@ class ScrapingService:
                     competitor_errors.extend(errors)
                     _merge_items(catalog_items)
 
-                filtered_items = self._filter_reference_candidates(
-                    product=product,
-                    items=competitor_items,
-                    max_candidates=max_candidates,
-                )
-
-            # Fallback supplémentaire 1 : sitemap/robots.txt.
-            # Utile quand la recherche interne du site ne renvoie rien à requests,
-            # alors que la fiche produit existe bien et est indexée.
-            if not filtered_items and _time_left() > 6:
-                sitemap_items = self._extract_products_from_sitemap_fallback(
-                    competitor=competitor,
-                    product=product,
-                    limit=min(detail_limit, 6),
-                    budget_seconds=max(3, min(10, _time_left() - 1)),
-                )
-                _merge_items(sitemap_items)
-                filtered_items = self._filter_reference_candidates(
-                    product=product,
-                    items=competitor_items,
-                    max_candidates=max_candidates,
-                )
-
-            # Fallback supplémentaire 2 : pages catégories/marque ciblées.
-            # Sert surtout pour les sites où le produit est présent en catalogue,
-            # mais le moteur de recherche interne bloque ou répond vide.
-            if not filtered_items and _time_left() > 6:
-                targeted_catalog_items = self._extract_products_from_targeted_catalog_pages(
-                    competitor=competitor,
-                    product=product,
-                    limit=min(detail_limit, 6),
-                    budget_seconds=max(3, min(10, _time_left() - 1)),
-                )
-                _merge_items(targeted_catalog_items)
                 filtered_items = self._filter_reference_candidates(
                     product=product,
                     items=competitor_items,

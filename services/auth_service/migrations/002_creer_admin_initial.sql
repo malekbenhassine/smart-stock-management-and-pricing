@@ -32,8 +32,8 @@ INSERT INTO utilisateur (
 )
 VALUES (
     'Admin',
-    'IT',
-    'admin@gmail.com',
+    'Malek',
+    'malek@gmail.com',
     crypt('admin1234', gen_salt('bf')),
     '["ADMIN"]'::jsonb,
     NULL,

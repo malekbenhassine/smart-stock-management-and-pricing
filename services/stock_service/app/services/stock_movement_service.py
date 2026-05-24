@@ -5,9 +5,10 @@ from datetime import datetime, timedelta
 from fastapi import HTTPException
 from sqlalchemy import func
 from sqlalchemy.orm import Session
-
+from app.services.manager_service import enregistrer_activite
 from app.models.tables import Product, Sale, SaleLine, StockMovement
 from app.schemas.schemas import StockMovementCreate, StockMovementUpdate
+from app.services.alert_event_client import trigger_stock_alert_scan
 
 
 MOVEMENT_TYPES = {
@@ -236,6 +237,8 @@ def _create_sale_from_customer_movement(
     return sale
 
 def create_stock_movement_service(payload: StockMovementCreate, db: Session) -> dict:
+    sale = None
+
     product = db.query(Product).filter(Product.id == payload.produit_id).first()
 
     if not product:
@@ -254,39 +257,40 @@ def create_stock_movement_service(payload: StockMovementCreate, db: Session) -> 
     db.add(movement)
     db.flush()
 
-    sale = _create_sale_from_customer_movement(
+    sale = _create_sale_from_customer_movement(db=db, product=product, movement=movement)
+
+    enregistrer_activite(
         db=db,
-        product=product,
-        movement=movement,
+        role_utilisateur="RESPONSABLE_STOCK",
+        nom_utilisateur="Responsable stock",
+        type_action="MOUVEMENT_STOCK",
+        type_entite="MOUVEMENT_STOCK",
+        entite_id=movement.id,
+        produit_id=product.id,
+        description=f"Mouvement stock {movement.type} de {movement.quantite} unité(s) pour le produit : {product.nom}",
+        donnees={
+            "type": movement.type,
+            "quantite": movement.quantite,
+            "justification": movement.justification,
+            "stockDisponibleApres": product.stock_disponible,
+            "stockReserveApres": product.stock_reserve,
+            "venteCreee": sale is not None,
+        },
     )
 
     db.commit()
     db.refresh(movement)
     db.refresh(product)
 
+    trigger_stock_alert_scan()
+
     return {
         "status": "success",
-        "movement": _serialize_movement(
-            movement,
-            product_name=product.nom,
-            product_sku=product.sku,
-        ),
+        "movement": _serialize_movement(movement, product_name=product.nom, product_sku=product.sku),
         "saleCreated": sale is not None,
-        "sale": {
-            "id": sale.id,
-            "source": sale.source,
-            "statut": sale.statut,
-            "dateVente": sale.date_vente,
-        } if sale is not None else None,
-        "product": {
-            "id": product.id,
-            "sku": product.sku,
-            "nom": product.nom,
-            "stockDisponible": product.stock_disponible,
-            "stockReserve": product.stock_reserve,
-        },
+        "sale": {"id": sale.id, "source": sale.source, "statut": sale.statut, "dateVente": sale.date_vente} if sale is not None else None,
+        "product": {"id": product.id, "sku": product.sku, "nom": product.nom, "stockDisponible": product.stock_disponible, "stockReserve": product.stock_reserve},
     }
-
 
 def list_stock_movements_service(
     db: Session,

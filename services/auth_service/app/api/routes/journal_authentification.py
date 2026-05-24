@@ -5,7 +5,7 @@ from sqlalchemy.orm import Session
 
 from app.core.database import get_db
 from app.core.deps import require_admin
-from app.repositories.journal_authentification_repo import JournalAuthentificationRepository
+from app.services.auth_service import AuthService
 from app.schemas.journal_authentification_schemas import JournalAuthentificationResponse
 
 router = APIRouter(prefix="/auth/journal", tags=["journal-authentification"])
@@ -17,4 +17,4 @@ def lister_journal_authentification(
     db: Session = Depends(get_db),
     _admin=Depends(require_admin),
 ):
-    return JournalAuthentificationRepository.lister(db=db, limite=limite)
+    return AuthService.list_journaux_authentification(db=db, limite=limite)

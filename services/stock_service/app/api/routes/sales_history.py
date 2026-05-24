@@ -10,7 +10,7 @@ from ...services.sales_history_service import (
     fetch_recent_product_history,
 )
 
-router = APIRouter(prefix="/sales-history", tags=["sales-history"])
+router = APIRouter(prefix="/sales-history", tags=["historique-ventes"])
 
 
 @router.post("/bulk")
@@ -20,32 +20,55 @@ def bulk_sales_history(items: list[SalesHistoryIn], db: Session = Depends(get_db
 
 @router.get("")
 def get_sales_history(
-    store_id: str = Query(...),
-    product_id: str = Query(...),
-    target_date: date = Query(...),
-    n_days: int = Query(default=90, ge=1, le=365),
+    # Noms français officiels
+    magasin_id: str | None = Query(default=None),
+    produit_id: str | None = Query(default=None),
+    date_cible: date | None = Query(default=None),
+    nombre_jours: int = Query(default=90, ge=1, le=365),
+    # Compatibilité anciennes requêtes/front/inference
+    store_id: str | None = Query(default=None),
+    product_id: str | None = Query(default=None),
+    target_date: date | None = Query(default=None),
+    n_days: int | None = Query(default=None, ge=1, le=365),
     db: Session = Depends(get_db),
 ):
-    start_date = target_date - timedelta(days=n_days)
+    final_magasin_id = magasin_id or store_id
+    final_produit_id = produit_id or product_id
+    final_date_cible = date_cible or target_date
+    final_nombre_jours = n_days or nombre_jours
+
+    if not final_magasin_id or not final_produit_id or not final_date_cible:
+        return []
+
+    date_debut = final_date_cible - timedelta(days=final_nombre_jours)
 
     return fetch_sales_history(
         db=db,
-        store_id=store_id,
-        product_id=product_id,
-        start_date=start_date,
-        end_date=target_date,
-        limit=n_days + 10,
+        magasin_id=final_magasin_id,
+        produit_id=final_produit_id,
+        start_date=date_debut,
+        end_date=final_date_cible,
+        limit=final_nombre_jours + 10,
     )
 
 
 @router.get("/recent")
 def get_recent_history(
-    product_id: str = Query(...),
+    # IMPORTANT : inference_service envoie encore product_id. On garde ce nom ici.
+    product_id: str | None = Query(default=None),
+    produit_id: str | None = Query(default=None),
     limit: int = Query(default=30, ge=1, le=365),
+    limite: int | None = Query(default=None, ge=1, le=365),
     db: Session = Depends(get_db),
 ):
+    final_product_id = product_id or produit_id
+    final_limit = limite or limit
+
+    if not final_product_id:
+        return []
+
     return fetch_recent_product_history(
         db=db,
-        product_id=product_id,
-        limit=limit,
+        product_id=final_product_id,
+        limit=final_limit,
     )

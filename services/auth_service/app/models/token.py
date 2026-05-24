@@ -25,18 +25,29 @@ class Token(Base):
 
     utilisateur = relationship("User", back_populates="jetons")
 
-    # Alias Python pour garder la logique simple dans quelques endroits.
     @property
     def user_id(self):
         return self.utilisateur_id
+
+    @user_id.setter
+    def user_id(self, value):
+        self.utilisateur_id = value
 
     @property
     def token(self):
         return self.valeur
 
+    @token.setter
+    def token(self, value):
+        self.valeur = value
+
     @property
     def expires_at(self):
         return self.expire_le
+
+    @expires_at.setter
+    def expires_at(self, value):
+        self.expire_le = value
 
     @property
     def used(self):

@@ -10,6 +10,7 @@ from bs4 import BeautifulSoup
 import time
 from app.services.selector_service import detect_selectors
 from app.services.keyword_service import generate_keywords
+from app.services.search_template_service import discover_search_url_templates
 import time
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
@@ -82,10 +83,17 @@ INCLUDE_HINTS = [
 ]
 
 EXCLUDE_HINTS = [
-    "contact", "about", "a-propos", "login", "signin", "register",
-    "cart", "panier", "checkout", "compte", "account", "cgv", "faq",
-    "blog", "news", "mentions", "privacy", "sav", "service-client",
-    "recrutement", "emploi", "livraison", "retour", "garantie",
+    "contact", "contactez-nous", "contactez", "nous-contacter",
+    "about", "a-propos", "qui-sommes-nous", "qui sommes nous",
+    "login", "signin", "register", "connexion", "inscription",
+    "cart", "panier", "checkout", "commande",
+    "compte", "account", "mon-compte",
+    "cgv", "faq", "mentions", "privacy", "confidentialite",
+    "blog", "news", "actualite", "actualites", "article", "articles",
+    "sav", "service-apres-vente", "service après vente",
+    "recrutement", "emploi",
+    "livraison", "retour", "garantie",
+    "maintenance", "logiciels", "licence",
 ]
 
 CATALOG_URL_PATTERNS = [
@@ -269,30 +277,70 @@ def _build_candidates(site_url: str, html: str) -> list[dict]:
 
     # URLs à exclure absolument (pages non-produit)
     HARD_EXCLUDE = re.compile(
-        r"/(login|signin|register|cart|panier|checkout|compte|account|"
-        r"cgv|faq|blog|news|mentions|privacy|sav|contact|about|"
-        r"recrutement|emploi|livraison|retour|garantie|wishlist|"
-        r"compare|search|recherche|404|sitemap|feed|rss)(/|$)",
-        re.IGNORECASE,
+       r"/("
+       r"login|signin|register|connexion|inscription|"
+       r"cart|panier|checkout|commande|compte|account|mon-compte|"
+       r"cgv|faq|mentions|privacy|confidentialite|"
+       r"blog|news|actualite|actualites|category/actualites|"
+       r"article|articles|"
+       r"sav|service-apres-vente|service-client|"
+       r"contact|contactez-nous|nous-contacter|"
+       r"about|a-propos|qui-sommes-nous|"
+       r"recrutement|emploi|livraison|retour|garantie|"
+       r"maintenance|logiciels|licence|"
+       r"wishlist|compare|search|recherche|404|sitemap|feed|rss"
+       r")(/|$)",
+       re.IGNORECASE,
     )
 
     def add_candidate(title: str, url: str, source: str) -> None:
         if url in seen_urls:
             return
+
         # Exclure les extensions non-HTML
-        if re.search(r"\.(jpg|jpeg|png|gif|pdf|zip|xml|css|js)$", url, re.IGNORECASE):
+        if re.search(r"\.(jpg|jpeg|png|gif|webp|svg|pdf|zip|xml|css|js)$", url, re.IGNORECASE):
             return
-        # Exclure les pages non-produit
-        if HARD_EXCLUDE.search(urlparse(url).path):
-            return
-        # Exclure les ancres pures et les pages de même host racine sans path
+
         parsed = urlparse(url)
+
+        # Exclure les ancres pures et la page d'accueil
         if not parsed.path or parsed.path == "/":
             return
 
-        seen_urls.add(url)
+        path_text = _strip_accents(parsed.path.lower())
+        title_text = _strip_accents((title or "").lower())
+        full_text = f"{title_text} {path_text}"
+
+        # Exclure les pages non-catalogue
+        bad_words = [
+            "contact", "contactez", "nous-contacter",
+            "sav", "service-apres-vente", "service-client",
+            "actualite", "actualites", "blog", "article", "articles",
+            "qui-sommes-nous", "qui sommes nous", "a-propos", "about",
+            "maintenance", "logiciels", "licence",
+            "login", "connexion", "inscription", "register",
+            "panier", "cart", "checkout", "commande",
+            "compte", "account", "mon-compte",
+            "mentions", "privacy", "confidentialite", "cgv", "faq",
+            "livraison", "retour", "garantie",
+            "wishlist", "compare", "search", "recherche",
+        ]
+
+        if any(word in full_text for word in bad_words):
+            return
+
+        if HARD_EXCLUDE.search(path_text):
+            return
+
         score = score_catalog_candidate(title, url)
+
+        if score < 1:
+            return
+
+        seen_urls.add(url)
+
         depth = max(0, len([p for p in parsed.path.split("/") if p]))
+
         candidates.append({
             "title": title or url.split("/")[-1].replace("-", " ").strip() or "Catalogue",
             "url": url,
@@ -303,18 +351,14 @@ def _build_candidates(site_url: str, html: str) -> list[dict]:
             "is_selected": True,
         })
 
-    # 1. Liens de navigation (priorité haute)
     for title, url in extract_nav_links(site_url, html):
         add_candidate(title, url, "nav_discovery")
 
-    # 2. Tous les liens du body
     for title, url in extract_same_domain_links(site_url, html):
         add_candidate(title, url, "auto_discovery")
 
-    # Trier : score DESC, puis depth ASC
     candidates.sort(key=lambda x: (-x["score"], x["depth"], x["url"]))
 
-    # Déduplication par dominance de path — seuil conservateur (4 niveaux)
     deduped: list[dict] = []
     retained_paths: list[str] = []
 
@@ -374,6 +418,7 @@ class DiscoveryService:
                 "keywords": [],
                 "catalogs": [],
                 "warnings": [f"Impossible de charger la page d'accueil : {exc}"],
+                "url_recherche": discover_search_url_templates(site_url, html="", session=self.session),
             }
 
         selectors = detect_selectors(host, html)
@@ -473,7 +518,7 @@ class DiscoveryService:
 
             for c in fallback:
                 c["source"] = "auto_discovery_unverified"
-                c["is_selected"] = False
+                c["is_selected"] = True
 
             final_catalogs = fallback
             category_titles = [c["title"] for c in fallback]
@@ -490,4 +535,5 @@ class DiscoveryService:
             "keywords": keywords,
             "catalogs": final_catalogs,
             "warnings": warnings,
+            "url_recherche": discover_search_url_templates(site_url, html=html, session=self.session),
     }

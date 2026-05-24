@@ -181,6 +181,7 @@ services:
       - "8006:8006"
     environment:
       ALERTS_DATABASE_URL: postgresql://postgres:postgres@postgres_alerts:5432/alerts_db
+      STOCK_DATABASE_URL: postgresql+psycopg2://postgres:postgres@postgres_stock:5432/stock_db
     depends_on:
       - postgres_alerts
     networks:

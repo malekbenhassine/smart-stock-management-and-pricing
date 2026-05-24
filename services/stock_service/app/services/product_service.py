@@ -140,7 +140,7 @@ def get_product_stock_details_service(product_id: int, db: Session):
     if p.sku:
         latest_row = (
             db.query(SalesHistory)
-            .filter(SalesHistory.product_id == p.sku)
+            .filter(SalesHistory.produit_id == p.sku)
             .order_by(SalesHistory.date.desc())
             .first()
         )
@@ -151,7 +151,7 @@ def get_product_stock_details_service(product_id: int, db: Session):
         start_date = end_date - timedelta(days=analysis_days - 1)
         history_rows = (
             db.query(SalesHistory)
-            .filter(SalesHistory.product_id == p.sku)
+            .filter(SalesHistory.produit_id == p.sku)
             .filter(SalesHistory.date >= start_date)
             .filter(SalesHistory.date <= end_date)
             .order_by(SalesHistory.date.asc())
@@ -161,7 +161,7 @@ def get_product_stock_details_service(product_id: int, db: Session):
         end_date = None
         start_date = None
 
-    total_sales = sum(_safe_float(row.sales, 0) for row in history_rows)
+    total_sales = sum(_safe_float(row.ventes, 0) for row in history_rows)
     avg_daily_sales = total_sales / analysis_days if analysis_days > 0 else 0.0
     weekly_forecast = avg_daily_sales * 7
     demand_source = "historique_ventes" if history_rows else "none"
@@ -358,8 +358,6 @@ def create_product_service(payload, db: Session):
         seuil_max=payload.seuilMax,
         seuil_min=payload.seuilMin,
         statut=payload.statut or "actif",
-        date_debut_observation=payload.dateDebutObservation,
-        date_fin_observation=payload.dateFinObservation,
     )
 
     if hasattr(obj, "statut_prix"):
@@ -445,6 +443,24 @@ def update_product_service(product_id: int, payload, db: Session):
 
     db.commit()
     db.refresh(obj)
+    enregistrer_activite(
+        db=db,
+        role_utilisateur="RESPONSABLE_STOCK",
+        nom_utilisateur="Responsable stock",
+        type_action="MODIFICATION_PRODUIT",
+        type_entite="PRODUIT",
+        entite_id=obj.id,
+        produit_id=obj.id,
+        description=f"Modification du produit : {obj.nom}",
+        donnees={
+            "champs_modifies": list(data.keys()),
+            "sku": obj.sku,
+            "nom": obj.nom,
+            "prixVente": obj.prix_vente,
+            "stockDisponible": obj.stock_disponible,
+        },
+    )
+    db.commit()
     return serialize_product(obj)
 
 

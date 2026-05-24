@@ -1,15 +1,18 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta
+from typing import Any
 from urllib.parse import urlparse, urlunparse
+
 from sqlalchemy.orm import Session
 
 from app.models.tables import Competitor, CompetitorCatalog
 from app.schemas.competitor_schemas import (
+    CompetitorAdvancedConfigUpdate,
     CompetitorCreate,
     CompetitorUpdate,
-    CompetitorAdvancedConfigUpdate,
 )
+from app.services.alert_event_client import emit_alert_event
 from app.services.scraping_client import ScrapingServiceClient
 
 
@@ -35,99 +38,379 @@ def normalize_catalog_url(raw_url: str) -> str:
     parsed = urlparse(str(raw_url).strip())
     scheme = parsed.scheme or "https"
     host = (parsed.netloc or "").lower().strip()
+
+    # Si l'URL est relative, on la laisse telle quelle pour éviter de créer une URL vide.
+    # Normalement le discovery_service doit retourner des URLs absolues.
+    if not host:
+        return str(raw_url).strip()
+
     path = parsed.path.rstrip("/") or "/"
     return urlunparse((scheme, host, path, "", "", ""))
 
 
+MIN_SCRAPING_FREQUENCY_HOURS = 3
+MAX_SCRAPING_FREQUENCY_HOURS = 168
+
+
+def _normalize_frequency_hours(value: Any, default: int = MIN_SCRAPING_FREQUENCY_HOURS) -> int:
+    try:
+        number = int(value)
+    except Exception:
+        number = default
+
+    return max(MIN_SCRAPING_FREQUENCY_HOURS, min(MAX_SCRAPING_FREQUENCY_HOURS, number))
+
+
+def _dt(value: Any) -> str | None:
+    return value.isoformat() if value else None
+
+
+def _as_list(value: Any) -> list:
+    if value is None:
+        return []
+    if isinstance(value, list):
+        return value
+    if isinstance(value, tuple):
+        return list(value)
+    return []
+
+
+def _first_list(data: dict[str, Any], *keys: str) -> list:
+    for key in keys:
+        value = data.get(key)
+        if isinstance(value, list):
+            return value
+    return []
+
+
+def _first_value(data: dict[str, Any], *keys: str, default: Any = None) -> Any:
+    for key in keys:
+        if key in data and data.get(key) is not None:
+            return data.get(key)
+    return default
+
+
+def _make_catalog_title(item: dict[str, Any], url: str) -> str:
+    title = _first_value(item, "titre", "title", "name", "label", default=None)
+    if title:
+        return str(title).strip()[:255]
+
+    parsed = urlparse(url)
+    path = parsed.path.strip("/").replace("-", " ").replace("_", " ")
+    return (path or "Catalogue détecté")[:255]
+
+
+def _make_catalog_key(url: str) -> str:
+    return normalize_catalog_url(url)
+
+
+def _catalog_is_active(item: dict[str, Any]) -> bool:
+    """
+    Compatibilité avec l'ancienne logique :
+    - avant : is_selected indiquait si le catalogue devait être utilisé ;
+    - maintenant : actif remplace cette notion ;
+    - on accepte quand même is_selected/is_active pour comprendre l'ancien retour discovery.
+    """
+    return bool(
+        _first_value(
+            item,
+            "actif",
+            "is_active",
+            "isActive",
+            "is_selected",
+            "isSelected",
+            default=True,
+        )
+    )
+
+
+def _normalize_discovered_catalog_item(item: Any) -> dict[str, Any] | None:
+    if not isinstance(item, dict):
+        return None
+
+    url = _first_value(item, "url", "href", "link", "catalog_url", "catalogUrl")
+    if not url:
+        return None
+
+    normalized_url = normalize_catalog_url(str(url))
+    if not normalized_url:
+        return None
+
+    parent_url = _first_value(
+        item,
+        "url_parent",
+        "parent_url",
+        "parentUrl",
+        "parent",
+        default=None,
+    )
+
+    try:
+        profondeur = int(_first_value(item, "profondeur", "depth", default=0) or 0)
+    except Exception:
+        profondeur = 0
+
+    try:
+        score = float(_first_value(item, "score", default=0) or 0)
+    except Exception:
+        score = 0.0
+
+    return {
+        # Format français
+        "titre": _make_catalog_title(item, normalized_url),
+        "url": normalized_url,
+        "cle_url": _first_value(item, "cle_url", "url_key", "urlKey", default=normalized_url),
+        "url_parent": parent_url,
+        "profondeur": profondeur,
+        "score": score,
+        "source": _first_value(item, "source", default="auto_discovery"),
+        "actif": _catalog_is_active(item),
+
+        # Format ancien conservé
+        "title": _make_catalog_title(item, normalized_url),
+        "url_key": _first_value(item, "cle_url", "url_key", "urlKey", default=normalized_url),
+        "parent_url": parent_url,
+        "depth": profondeur,
+        "is_selected": _catalog_is_active(item),
+        "is_active": _catalog_is_active(item),
+    }
+
+
+def _extract_discovered_catalogs(discovery: dict[str, Any]) -> list[dict[str, Any]]:
+    """
+    Accepte l'ancienne logique et plusieurs formats possibles renvoyés par scraping_service :
+    - catalogs
+    - catalogues
+    - catalog_urls
+    - candidates
+    - final_catalogs
+    - discovered_catalogs
+
+    Cette fonction évite que le stock_service vide les catalogues juste à cause d'un changement de nom.
+    """
+    if not isinstance(discovery, dict):
+        return []
+
+    raw_items = _first_list(
+        discovery,
+        "catalogs",
+        "catalogues",
+        "catalog_urls",
+        "catalogUrls",
+        "candidates",
+        "final_catalogs",
+        "discovered_catalogs",
+        "items",
+        "results",
+    )
+
+    normalized: list[dict[str, Any]] = []
+    seen: set[str] = set()
+
+    for item in raw_items:
+        # Cas où le service retourne directement une liste d'URLs.
+        if isinstance(item, str):
+            item = {
+                "url": item,
+                "title": "Catalogue détecté",
+                "source": "auto_discovery",
+                "is_selected": True,
+                "is_active": True,
+            }
+
+        catalog = _normalize_discovered_catalog_item(item)
+        if not catalog:
+            continue
+
+        key = catalog["cle_url"]
+        if key in seen:
+            continue
+
+        seen.add(key)
+        normalized.append(catalog)
+
+    return normalized
+
+
+def _extract_keywords(discovery: dict[str, Any]) -> list[str]:
+    values = _first_list(
+        discovery,
+        "keywords",
+        "auto_keywords",
+        "mots_cles_auto",
+        "autoKeywords",
+        "autoKeywordsJson",
+    )
+    return [str(v).strip() for v in values if str(v).strip()]
+
+
+def _extract_search_urls(discovery: dict[str, Any]) -> list[str]:
+    values = _first_list(
+        discovery,
+        "url_recherche",
+        "urls_recherche",
+        "search_urls",
+        "searchUrls",
+        "search_url",
+    )
+    return [str(v).strip() for v in values if str(v).strip()]
+
+
 def _serialize_catalog(c: CompetitorCatalog) -> dict:
+    """
+    Sérialisation compatible :
+    - français pour le diagramme/code ;
+    - ancien format pour le frontend et scraping_service.
+    """
+    selected = bool(getattr(c, "_is_selected_legacy", True))
+    active = bool(c.actif)
+
     return {
         "id": c.id,
-        "title": c.title,
+
+        # Ancien format attendu par le front/scraping
+        "title": c.titre,
         "url": c.url,
-        "parent_url": c.parent_url,
-        "depth": c.depth,
+        "url_key": c.cle_url,
+        "parent_url": c.url_parent,
+        "depth": c.profondeur,
         "score": c.score,
         "source": c.source,
-        "is_selected": c.is_selected,
-        "is_active": c.is_active,
+        "is_selected": selected,
+        "is_active": active,
+        "discovered_at": _dt(c.date_decouverte),
+
+        # Nouveau format français
+        "titre": c.titre,
+        "cle_url": c.cle_url,
+        "url_parent": c.url_parent,
+        "profondeur": c.profondeur,
+        "actif": active,
+        "date_decouverte": _dt(c.date_decouverte),
     }
 
 
 def _serialize_competitor(obj: Competitor) -> dict:
+    catalogues = [_serialize_catalog(c) for c in obj.catalogues if c.actif]
+
     return {
         "id": obj.id,
         "nom": obj.nom,
-        "site_url": obj.site_url,
-        "site_host_normalized": obj.site_host_normalized,
+
+        # Ancien format attendu par le front/scraping
+        "site_url": obj.url_site,
+        "site_host_normalized": obj.hote_site_normalise,
         "actif": obj.actif,
         "frequence_scraping_heures": obj.frequence_scraping_heures,
-        "dernier_scraping": obj.dernier_scraping.isoformat() if obj.dernier_scraping else None,
-        "discovery_status": obj.discovery_status,
-        "last_discovery_at": obj.last_discovery_at.isoformat() if obj.last_discovery_at else None,
-        "last_discovery_error": obj.last_discovery_error,
-        "auto_keywords": obj.auto_keywords_json or [],
-        "selectors_override": obj.selectors_override_json or {},
-        "catalogs": [_serialize_catalog(c) for c in obj.catalogs if c.is_active],
+        "dernier_scraping": _dt(obj.dernier_scraping),
+        "discovery_status": obj.statut_decouverte,
+        "last_discovery_at": _dt(obj.date_derniere_decouverte),
+        "last_discovery_error": obj.erreur_derniere_decouverte,
+        "auto_keywords": obj.mots_cles_auto_json or [],
+        "selectors_override": obj.selecteurs_override_json or {},
+        "catalogs": catalogues,
+        "url_recherche": obj.urls_recherche or [],
+        "created_at": _dt(obj.date_creation),
+        "updated_at": _dt(obj.date_modification),
+
+        # Nouveau format français
+        "url_site": obj.url_site,
+        "hote_site_normalise": obj.hote_site_normalise,
+        "statut_decouverte": obj.statut_decouverte,
+        "date_derniere_decouverte": _dt(obj.date_derniere_decouverte),
+        "erreur_derniere_decouverte": obj.erreur_derniere_decouverte,
+        "mots_cles_auto": obj.mots_cles_auto_json or [],
+        "selecteurs_override": obj.selecteurs_override_json or {},
+        "catalogues": catalogues,
+        "urls_recherche": obj.urls_recherche or [],
+        "date_creation": _dt(obj.date_creation),
+        "date_modification": _dt(obj.date_modification),
     }
 
 
-def _replace_catalogs(competitor: Competitor, discovered_catalogs: list[dict], db: Session) -> None:
+def _replace_catalogs(competitor: Competitor, discovered_catalogs: list[dict], db: Session) -> int:
+    """
+    Remplace les catalogues du concurrent.
+
+    Important :
+    - on comprend title/titre, depth/profondeur, parent_url/url_parent ;
+    - on utilise actif comme nouvelle logique ;
+    - on conserve _is_selected_legacy uniquement pour éviter une erreur DB si la colonne isSelected existe.
+    """
     db.query(CompetitorCatalog).filter(
-        CompetitorCatalog.competitor_id == competitor.id
+        CompetitorCatalog.concurrent_id == competitor.id
     ).delete(synchronize_session=False)
 
+    count = 0
+
     for item in discovered_catalogs or []:
-        url_raw = item.get("url")
-        if not url_raw:
+        catalog = _normalize_discovered_catalog_item(item)
+        if not catalog:
             continue
 
-        url = normalize_catalog_url(url_raw)
+        url = catalog["url"]
+        actif = bool(catalog.get("actif", True))
+
         row = CompetitorCatalog(
-            competitor_id=competitor.id,
-            title=item.get("title") or item.get("name") or "Catalogue détecté",
+            concurrent_id=competitor.id,
+            titre=catalog["titre"],
             url=url,
-            url_key=url,
-            parent_url=item.get("parent_url"),
-            depth=int(item.get("depth", 0) or 0),
-            score=float(item.get("score", 0) or 0),
-            source=item.get("source", "auto_discovery"),
-            is_selected=bool(item.get("is_selected", True)),
-            is_active=True,
+            cle_url=catalog.get("cle_url") or _make_catalog_key(url),
+            url_parent=catalog.get("url_parent"),
+            profondeur=int(catalog.get("profondeur", 0) or 0),
+            score=float(catalog.get("score", 0) or 0),
+            source=catalog.get("source") or "auto_discovery",
+            _is_selected_legacy=actif,
+            actif=actif,
         )
         db.add(row)
+        count += 1
+
+    return count
 
 
 def create_competitor_service(payload: CompetitorCreate, db: Session):
     """
     Création rapide du concurrent.
 
-    Important : on ne fait plus la discovery ici.
-    La discovery est longue, donc elle est lancée en arrière-plan depuis la route.
+    La discovery reste en arrière-plan depuis la route.
     """
-    normalized_site_url, site_host = normalize_site_url(str(payload.site_url))
+    normalized_site_url, site_host = normalize_site_url(str(payload.url_site))
 
     existing = db.query(Competitor).filter(
-        Competitor.site_host_normalized == site_host
+        Competitor.hote_site_normalise == site_host
     ).first()
     if existing:
         raise ValueError("Un concurrent existe déjà pour ce site")
 
     obj = Competitor(
         nom=payload.nom.strip(),
-        site_url=normalized_site_url,
-        site_host_normalized=site_host,
+        url_site=normalized_site_url,
+        hote_site_normalise=site_host,
         actif=payload.actif,
-        frequence_scraping_heures=payload.frequence_scraping_heures,
-        discovery_status="running",
-        last_discovery_at=None,
-        last_discovery_error=None,
-        auto_keywords_json=[],
-        selectors_override_json={},
+        frequence_scraping_heures=_normalize_frequency_hours(payload.frequence_scraping_heures),
+        statut_decouverte="running",
+        date_derniere_decouverte=None,
+        erreur_derniere_decouverte=None,
+        mots_cles_auto_json=[],
+        selecteurs_override_json={},
+        urls_recherche=[],
     )
 
     db.add(obj)
     db.commit()
     db.refresh(obj)
+
+    emit_alert_event(
+        event_type="COMPETITOR_CREATED",
+        target_role="STOCK",
+        metadata={
+            "competitor_id": obj.id,
+            "competitor_name": obj.nom,
+            "site_url": obj.url_site,
+            "message": f"Le concurrent {obj.nom} a été ajouté avec succès.",
+        },
+    )
 
     return _serialize_competitor(obj)
 
@@ -135,7 +418,7 @@ def create_competitor_service(payload: CompetitorCreate, db: Session):
 def run_competitor_discovery_service(competitor_id: int, db: Session):
     """
     Discovery longue lancée en arrière-plan.
-    Elle remplit les catalogues, keywords et met à jour discovery_status.
+    Elle remplit les catalogues, mots-clés et URLs de recherche.
     """
     obj = db.query(Competitor).filter(Competitor.id == competitor_id).first()
 
@@ -146,8 +429,8 @@ def run_competitor_discovery_service(competitor_id: int, db: Session):
             "error": "Concurrent introuvable",
         }
 
-    obj.discovery_status = "running"
-    obj.last_discovery_error = None
+    obj.statut_decouverte = "running"
+    obj.erreur_derniere_decouverte = None
     db.commit()
     db.refresh(obj)
 
@@ -156,47 +439,108 @@ def run_competitor_discovery_service(competitor_id: int, db: Session):
     try:
         discovery = scraper.discover_site(
             competitor_name=obj.nom,
-            site_url=obj.site_url,
+            site_url=obj.url_site,
         )
 
-        catalogs = discovery.get("catalogs", []) or []
-        keywords = discovery.get("keywords", []) or []
+        if not isinstance(discovery, dict):
+            discovery = {}
+
+        catalogs = _extract_discovered_catalogs(discovery)
+        keywords = _extract_keywords(discovery)
+        search_urls = _extract_search_urls(discovery)
+
         status = str(discovery.get("status") or "").lower()
         error = discovery.get("error")
 
-        _replace_catalogs(obj, catalogs, db)
+        catalogs_count = _replace_catalogs(obj, catalogs, db)
 
-        obj.auto_keywords_json = keywords
-        obj.last_discovery_at = datetime.utcnow()
+        obj.mots_cles_auto_json = keywords
+        obj.urls_recherche = search_urls
+        obj.date_derniere_decouverte = datetime.utcnow()
 
         if status in ("timeout", "error"):
-            obj.discovery_status = "partial"
-            obj.last_discovery_error = error or (
+            obj.statut_decouverte = "partial"
+            obj.erreur_derniere_decouverte = error or (
                 "La découverte du site n'a pas pu se terminer correctement."
             )
-        elif catalogs:
-            obj.discovery_status = "ready"
-            obj.last_discovery_error = None
+        elif catalogs_count > 0:
+            obj.statut_decouverte = "ready"
+            obj.erreur_derniere_decouverte = None
         else:
-            obj.discovery_status = "partial"
-            obj.last_discovery_error = "Aucun catalogue détecté automatiquement."
+            obj.statut_decouverte = "partial"
+            obj.erreur_derniere_decouverte = "Aucun catalogue détecté automatiquement."
 
         db.commit()
         db.refresh(obj)
 
+        if obj.statut_decouverte == "ready":
+            emit_alert_event(
+                event_type="COMPETITOR_CATALOGS_READY",
+                target_role="STOCK",
+                value=catalogs_count,
+                metadata={
+                    "competitor_id": obj.id,
+                    "competitor_name": obj.nom,
+                    "site_url": obj.url_site,
+                    "catalogs_count": catalogs_count,
+                    "status": obj.statut_decouverte,
+                    "message": (
+                        f"Les catalogues du concurrent {obj.nom} sont prêts : "
+                        f"{catalogs_count} catalogue(s) détecté(s)."
+                    ),
+                },
+            )
+        else:
+            emit_alert_event(
+                event_type="COMPETITOR_CATALOGS_PARTIAL",
+                target_role="STOCK",
+                value=catalogs_count,
+                metadata={
+                    "competitor_id": obj.id,
+                    "competitor_name": obj.nom,
+                    "site_url": obj.url_site,
+                    "catalogs_count": catalogs_count,
+                    "status": obj.statut_decouverte,
+                    "error": obj.erreur_derniere_decouverte,
+                    "message": (
+                        f"Découverte partielle pour {obj.nom} : "
+                        f"{catalogs_count} catalogue(s) détecté(s). "
+                        f"Détail : {obj.erreur_derniere_decouverte or 'information non précisée'}."
+                    ),
+                },
+            )
+
         return {
-            "status": obj.discovery_status,
+            "status": obj.statut_decouverte,
             "competitor_id": obj.id,
-            "catalogs_count": len(catalogs),
-            "error": obj.last_discovery_error,
+            "catalogs_count": catalogs_count,
+            "error": obj.erreur_derniere_decouverte,
         }
 
     except Exception as exc:
-        obj.discovery_status = "failed"
-        obj.last_discovery_at = datetime.utcnow()
-        obj.last_discovery_error = str(exc)
+        obj.statut_decouverte = "failed"
+        obj.date_derniere_decouverte = datetime.utcnow()
+        obj.erreur_derniere_decouverte = str(exc)
         db.commit()
         db.refresh(obj)
+
+        emit_alert_event(
+            event_type="COMPETITOR_CATALOGS_FAILED",
+            target_role="STOCK",
+            value=0,
+            metadata={
+                "competitor_id": obj.id,
+                "competitor_name": obj.nom,
+                "site_url": obj.url_site,
+                "catalogs_count": 0,
+                "status": obj.statut_decouverte,
+                "error": str(exc),
+                "message": (
+                    f"La découverte des catalogues du concurrent {obj.nom} a échoué. "
+                    f"Erreur : {str(exc)}"
+                ),
+            },
+        )
 
         return {
             "status": "failed",
@@ -231,31 +575,32 @@ def update_competitor_service(competitor_id: int, payload: CompetitorUpdate, db:
         obj.actif = payload.actif
 
     if payload.frequence_scraping_heures is not None:
-        obj.frequence_scraping_heures = payload.frequence_scraping_heures
+        obj.frequence_scraping_heures = _normalize_frequency_hours(payload.frequence_scraping_heures, obj.frequence_scraping_heures)
 
-    if payload.site_url is not None:
-        normalized_site_url, site_host = normalize_site_url(str(payload.site_url))
+    if payload.url_site is not None:
+        normalized_site_url, site_host = normalize_site_url(str(payload.url_site))
         duplicate = db.query(Competitor).filter(
-            Competitor.site_host_normalized == site_host,
+            Competitor.hote_site_normalise == site_host,
             Competitor.id != obj.id,
         ).first()
         if duplicate:
             raise ValueError("Un autre concurrent existe déjà pour ce site")
 
-        if obj.site_host_normalized != site_host:
+        if obj.hote_site_normalise != site_host:
             site_changed = True
 
-        obj.site_url = normalized_site_url
-        obj.site_host_normalized = site_host
+        obj.url_site = normalized_site_url
+        obj.hote_site_normalise = site_host
 
     if site_changed:
-        obj.discovery_status = "running"
-        obj.last_discovery_error = None
-        obj.last_discovery_at = None
-        obj.auto_keywords_json = []
+        obj.statut_decouverte = "running"
+        obj.erreur_derniere_decouverte = None
+        obj.date_derniere_decouverte = None
+        obj.mots_cles_auto_json = []
+        obj.urls_recherche = []
 
         db.query(CompetitorCatalog).filter(
-            CompetitorCatalog.competitor_id == obj.id
+            CompetitorCatalog.concurrent_id == obj.id
         ).delete(synchronize_session=False)
 
     db.commit()
@@ -275,8 +620,15 @@ def update_advanced_config_service(
     if not obj:
         raise ValueError("Concurrent introuvable")
 
-    if payload.selectors_override is not None:
-        obj.selectors_override_json = payload.selectors_override
+    if payload.selecteurs_override is not None:
+        obj.selecteurs_override_json = payload.selecteurs_override
+    elif payload.selectors_override is not None:
+        obj.selecteurs_override_json = payload.selectors_override
+
+    if payload.urls_recherche is not None:
+        obj.urls_recherche = payload.urls_recherche
+    elif payload.url_recherche is not None:
+        obj.urls_recherche = payload.url_recherche
 
     db.commit()
     db.refresh(obj)
@@ -286,7 +638,7 @@ def update_advanced_config_service(
 def due_competitors_service(db: Session):
     rows = db.query(Competitor).filter(
         Competitor.actif.is_(True),
-        Competitor.discovery_status.in_(["ready", "partial"]),
+        Competitor.statut_decouverte.in_(["ready", "partial"]),
     ).all()
 
     now = datetime.utcnow()
@@ -297,7 +649,7 @@ def due_competitors_service(db: Session):
             due.append(_serialize_competitor(c))
             continue
 
-        next_time = c.dernier_scraping + timedelta(hours=c.frequence_scraping_heures or 24)
+        next_time = c.dernier_scraping + timedelta(hours=_normalize_frequency_hours(c.frequence_scraping_heures))
         if next_time <= now:
             due.append(_serialize_competitor(c))
 
@@ -325,12 +677,17 @@ def replace_catalog_selection_service(competitor_id: int, catalog_ids: list[int]
         raise ValueError("Concurrent introuvable")
 
     catalogs = db.query(CompetitorCatalog).filter(
-        CompetitorCatalog.competitor_id == competitor_id
+        CompetitorCatalog.concurrent_id == competitor_id
     ).all()
 
     selected_set = set(catalog_ids)
+
     for c in catalogs:
-        c.is_selected = c.id in selected_set
+        selected = c.id in selected_set
+        c.actif = selected
+        # Compatibilité colonne DB isSelected si elle existe encore.
+        if hasattr(c, "_is_selected_legacy"):
+            c._is_selected_legacy = selected
 
     db.commit()
     db.refresh(obj)

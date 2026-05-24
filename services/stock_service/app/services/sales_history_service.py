@@ -4,18 +4,13 @@ from typing import Any, Optional
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 from sqlalchemy.dialects.postgresql import insert
-
+from app.services.manager_service import enregistrer_activite
 from ..models.tables import SalesHistory, Product, Sale, SaleLine, StockMovement
 
 
 def bulk_upsert_sales_history(items, db: Session):
     """
     Import rapide de sales_history.
-
-    Correction :
-    - avant : SELECT ligne par ligne puis INSERT/UPDATE
-    - maintenant : bulk upsert PostgreSQL
-    - évite la saturation PostgreSQL pendant l'import des gros CSV
     """
 
     if not items:
@@ -28,22 +23,32 @@ def bulk_upsert_sales_history(items, db: Session):
     rows = []
 
     for item in items:
+        product = _resolve_product(db, item.produit_id)
+        canonical_product_id = _canonical_sales_history_product_id(product, item.produit_id)
+
+        # Si l'historique contient une catégorie et que la fiche produit est vide,
+        # on complète la fiche produit automatiquement.
+        final_category = item.categorie or (product.categorie if product else None)
+        if product and not product.categorie and item.categorie:
+            product.categorie = item.categorie
+
         rows.append(
             {
+                # Attributs SQLAlchemy français ; colonnes DB conservées via Column("...")
                 "date": item.date,
-                "store_id": item.store_id,
-                "product_id": item.product_id,
-                "category": item.category,
+                "magasin_id": item.magasin_id,
+                "produit_id": canonical_product_id,
+                "categorie": final_category,
                 "region": item.region,
-                "sales": item.units_sold,
-                "price": item.price,
-                "stock": item.inventory_level,
-                "discount": item.discount,
-                "competitor_pricing": item.competitor_pricing,
-                "units_ordered": item.units_ordered,
-                "weather_condition": item.weather_condition,
-                "holiday_promotion": item.holiday_promotion,
-                "seasonality": item.seasonality,
+                "ventes": item.ventes,
+                "prix": item.prix,
+                "stock": item.stock,
+                "remise": item.remise,
+                "prix_concurrent": item.prix_concurrent,
+                "unites_commandees": item.unites_commandees,
+                "condition_meteo": item.condition_meteo,
+                "promotion_jour_ferie": item.promotion_jour_ferie,
+                "saisonnalite": item.saisonnalite,
             }
         )
 
@@ -69,6 +74,25 @@ def bulk_upsert_sales_history(items, db: Session):
     db.execute(stmt)
     db.commit()
 
+    inserted_count = len(rows)
+
+    enregistrer_activite(
+        db=db,
+        role_utilisateur="RESPONSABLE_STOCK",
+        nom_utilisateur="Responsable stock",
+        type_action="IMPORT_DONNEES_CSV",
+        type_entite="IMPORT_CSV",
+        entite_id=None,
+        produit_id=None,
+        description=f"Import CSV terminé : {inserted_count} ligne(s) importée(s).",
+        donnees={
+            "lignes_importees": inserted_count,
+            "source": "csv_import_service",
+        },
+    )
+
+    db.commit()
+
     return {
         "status": "success",
         "message": "Sales history importé avec succès.",
@@ -78,9 +102,9 @@ def bulk_upsert_sales_history(items, db: Session):
 
 def fetch_sales_history(
     db: Session,
-    product_id: Optional[str] = None,
-    store_id: Optional[str] = None,
-    category: Optional[str] = None,
+    produit_id: Optional[str] = None,
+    magasin_id: Optional[str] = None,
+    categorie: Optional[str] = None,
     region: Optional[str] = None,
     start_date: Optional[date] = None,
     end_date: Optional[date] = None,
@@ -95,14 +119,16 @@ def fetch_sales_history(
 
     query = db.query(SalesHistory)
 
-    if product_id:
-        query = query.filter(SalesHistory.product_id == product_id)
+    if produit_id:
+        product = _resolve_product(db, produit_id)
+        identifiers = _sales_history_identifiers(product, produit_id)
+        query = query.filter(SalesHistory.produit_id.in_(identifiers))
 
-    if store_id:
-        query = query.filter(SalesHistory.store_id == store_id)
+    if magasin_id:
+        query = query.filter(SalesHistory.magasin_id == magasin_id)
 
-    if category:
-        query = query.filter(SalesHistory.category == category)
+    if categorie:
+        query = query.filter(SalesHistory.categorie == categorie)
 
     if region:
         query = query.filter(SalesHistory.region == region)
@@ -129,17 +155,20 @@ def _safe_float(value: Any, default: float = 0.0) -> float:
         return default
 
 
+def _clean_identifier(value: Any) -> str:
+    return str(value or "").strip()
+
+
 def _resolve_product(db: Session, product_id: str | int | None) -> Product | None:
     """
-    Résout un produit à partir :
-    - soit de son SKU : ex. maxbook15972
-    - soit de son ID numérique : ex. 302
+    Résout un produit à partir de son SKU ou de son ID numérique.
 
-    Cette résolution est indispensable parce que :
-    - historique_ventes utilise le SKU dans SalesHistory.product_id ;
-    - lignes_ventes et mouvement_stock utilisent l'ID numérique du produit.
+    Important pour sales_history :
+    - l'import peut recevoir product_id = SKU ;
+    - l'import peut recevoir product_id = id numérique du produit ;
+    - l'inference_service peut demander l'historique avec l'id numérique.
     """
-    raw = str(product_id or "").strip()
+    raw = _clean_identifier(product_id)
     if not raw:
         return None
 
@@ -151,6 +180,37 @@ def _resolve_product(db: Session, product_id: str | int | None) -> Product | Non
         return db.query(Product).filter(Product.id == int(raw)).first()
 
     return None
+
+
+def _sales_history_identifiers(product: Product | None, raw_product_id: Any) -> list[str]:
+    """
+    Retourne toutes les clés possibles utilisées dans sales_history.product_id.
+    Cela corrige le cas où un fichier historique a été importé avec :
+    - le SKU : ITEL-S23-4/128-WH
+    - l'id numérique : 384
+    - ou un ancien identifiant texte.
+    """
+    identifiers: list[str] = []
+
+    raw = _clean_identifier(raw_product_id)
+    if raw:
+        identifiers.append(raw)
+
+    if product:
+        identifiers.append(str(product.sku))
+        identifiers.append(str(product.id))
+
+    return list(dict.fromkeys([item for item in identifiers if item]))
+
+
+def _canonical_sales_history_product_id(product: Product | None, raw_product_id: Any) -> str:
+    """
+    On stocke idéalement sales_history.product_id avec le SKU.
+    C'est le plus stable pour relier historique, scraping et recommandations.
+    """
+    if product and product.sku:
+        return str(product.sku).strip()
+    return _clean_identifier(raw_product_id)
 
 
 def fetch_recent_product_history(
@@ -192,9 +252,11 @@ def fetch_recent_product_history(
     candidate_dates: list[date] = []
 
     # 1. Date la plus récente dans historique_ventes.
+    history_identifiers = _sales_history_identifiers(product, raw_product_id)
+
     max_history_date = (
         db.query(func.max(SalesHistory.date))
-        .filter(SalesHistory.product_id == sku)
+        .filter(SalesHistory.produit_id.in_(history_identifiers))
         .scalar()
     )
     if max_history_date:
@@ -239,7 +301,7 @@ def fetch_recent_product_history(
     # ------------------------------------------------------------------
     history_rows = (
         db.query(SalesHistory)
-        .filter(SalesHistory.product_id == sku)
+        .filter(SalesHistory.produit_id.in_(history_identifiers))
         .filter(SalesHistory.date >= start_date)
         .filter(SalesHistory.date <= last_date)
         .order_by(SalesHistory.date.asc())
@@ -249,19 +311,19 @@ def fetch_recent_product_history(
     for row in history_rows:
         rows_by_date[row.date] = {
             "date": row.date.isoformat(),
-            "store_id": row.store_id,
-            "product_id": row.product_id,
-            "category": row.category,
+            "store_id": row.magasin_id,
+            "product_id": sku,
+            "category": row.categorie or (product.categorie if product else None),
             "region": row.region,
-            "sales": _safe_float(row.sales),
-            "price": _safe_float(row.price),
+            "sales": _safe_float(row.ventes),
+            "price": _safe_float(row.prix),
             "stock": _safe_float(row.stock),
-            "discount": _safe_float(row.discount),
-            "competitor_pricing": _safe_float(row.competitor_pricing),
-            "units_ordered": _safe_float(row.units_ordered),
-            "weather_condition": row.weather_condition,
-            "holiday_promotion": row.holiday_promotion,
-            "seasonality": row.seasonality,
+            "discount": _safe_float(row.remise),
+            "competitor_pricing": _safe_float(row.prix_concurrent),
+            "units_ordered": _safe_float(row.unites_commandees),
+            "weather_condition": row.condition_meteo,
+            "holiday_promotion": row.promotion_jour_ferie,
+            "seasonality": row.saisonnalite,
             "source": "historique_ventes",
         }
 

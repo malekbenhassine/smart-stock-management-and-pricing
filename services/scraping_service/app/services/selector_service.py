@@ -43,6 +43,16 @@ DOMAIN_TEMPLATES = {
         "sku": ".sku, .reference, .product-reference",
         "next_page": "a[rel='next'], .pagination .next a, a.next, a[href*='page=']",
     },
+    "infotec.tn": {
+        "product_card": "li.product, .products .product, .type-product, article.product, .product-small",
+        "product_name": ".woocommerce-loop-product__title, .product-title a, h2 a, h3 a, a.woocommerce-LoopProduct-link",
+        "product_link": "a.woocommerce-LoopProduct-link, a[href*='/fr/p/'], a[href*='/p/'], .product-title a, h2 a, h3 a",
+        "product_price": ".price .woocommerce-Price-amount, .woocommerce-Price-amount, .price, ins .amount",
+        "old_price": "del .woocommerce-Price-amount, del .amount, del, .old-price",
+        "availability": ".stock, .availability, .ast-stock-detail, [class*='stock']",
+        "sku": ".sku, .product_meta .sku",
+        "next_page": ".woocommerce-pagination a.next, a.next, a[rel='next'], .pagination a.next",
+    },
 }
 
 GENERIC_CANDIDATES = {

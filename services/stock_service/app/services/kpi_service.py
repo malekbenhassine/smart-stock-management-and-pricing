@@ -43,7 +43,7 @@ def _get_latest_available_date(product: Product, db: Session):
     if product.sku:
         max_history_date = (
             db.query(func.max(SalesHistory.date))
-            .filter(SalesHistory.product_id == product.sku)
+            .filter(SalesHistory.produit_id == product.sku)
             .scalar()
         )
         if max_history_date:
@@ -148,7 +148,7 @@ def get_product_kpis_service(product_id: int, db: Session, days: int = 30) -> di
     # ==========================================================
     history_rows = (
         db.query(SalesHistory)
-        .filter(SalesHistory.product_id == product.sku)
+        .filter(SalesHistory.produit_id == product.sku)
         .filter(SalesHistory.date >= start_date)
         .filter(SalesHistory.date <= end_date)
         .order_by(SalesHistory.date.asc())
@@ -159,7 +159,7 @@ def get_product_kpis_service(product_id: int, db: Session, days: int = 30) -> di
         row_date = row.date
         rows_by_date[row_date] = {
             "date": row_date,
-            "sales": _safe_float(row.sales, 0),
+            "sales": _safe_float(row.ventes, 0),
             "stock": _safe_float(row.stock, current_stock),
             "source": "historique_ventes",
         }

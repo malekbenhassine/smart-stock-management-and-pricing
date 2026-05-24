@@ -43,9 +43,24 @@ async def post_to_stock(endpoint: str, payload: list[dict]):
     response = await client.post(endpoint, json=payload)
 
     if not response.is_success:
+        body = response.text
+        try:
+            body = response.json()
+        except Exception:
+            pass
+
+        sample = payload[:2] if isinstance(payload, list) else payload
+
         raise HTTPException(
             status_code=response.status_code,
-            detail=f"{response.status_code}: {response.text}",
+            detail={
+                "target": "stock_service",
+                "endpoint": endpoint,
+                "status_code": response.status_code,
+                "response": body,
+                "rows_sent": len(payload) if isinstance(payload, list) else None,
+                "sample_rows": sample,
+            },
         )
 
     return response.json()
@@ -81,6 +96,30 @@ async def trigger_post_import_workflow(
                 "async_mode": True,
                 "product_ids": product_ids or [],
             },
+            timeout=30,
+        )
+
+        if not response.is_success:
+            return {
+                "status": "error",
+                "detail": f"{response.status_code}: {response.text}",
+            }
+
+        return response.json()
+
+    except Exception as exc:
+        return {
+            "status": "error",
+            "detail": str(exc),
+        }
+        
+async def notify_stock_import_activity(payload: dict):
+    client = get_stock_client()
+
+    try:
+        response = await client.post(
+            "/manager/journal-activites/import-csv",
+            json=payload,
             timeout=30,
         )
 

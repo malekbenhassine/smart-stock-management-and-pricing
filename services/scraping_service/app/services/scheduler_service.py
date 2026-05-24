@@ -16,6 +16,7 @@ from app.services.alert_client import AlertClient
 
 STATE_FILE = Path("/app/.scheduler/dual_scraping_scheduler.json")
 CHECK_EVERY_SECONDS = 5
+MIN_CATALOG_INTERVAL_MINUTES = 180  # 3 heures minimum
 
 _scheduler_started = False
 
@@ -115,6 +116,8 @@ def _normalize_scraped_row(row: dict, source_type: str = "catalog", parent_produ
         or parent_product
     )
 
+    concurrent_name = _resolve_competitor_name(row)
+
     produit_scrape = row.get("produitScrape") or row.get("produit_scrape") or {
         "id": row.get("id"),
         "nomProduit": _first_value(row, ["nomProduit", "nom_produit", "name", "title"]),
@@ -124,9 +127,21 @@ def _normalize_scraped_row(row: dict, source_type: str = "catalog", parent_produ
         "ancienPrixConcurrent": _first_value(row, ["ancienPrixConcurrent", "ancien_prix_concurrent", "old_price"]),
         "isPromo": _first_value(row, ["isPromo", "is_promo"], False),
         "disponibilite": _first_value(row, ["disponibilite", "availability"]),
-        "concurrent": _first_value(row, ["concurrent", "competitor_name", "concurrentName"]),
-        "concurrentId": _first_value(row, ["concurrentId", "concurrent_id", "competitor_id"]),
+        "concurrent": concurrent_name,
+        "competitor_name": concurrent_name,
+        "concurrent_name": concurrent_name,
+        "nomConcurrent": concurrent_name,
+        "concurrentId": _first_value(row, ["concurrentId", "concurrent_id", "competitor_id", "competitorId"]),
     }
+
+    if isinstance(produit_scrape, dict):
+        concurrent_name = concurrent_name or _resolve_competitor_name(produit_scrape)
+        if concurrent_name:
+            produit_scrape = dict(produit_scrape)
+            produit_scrape["concurrent"] = concurrent_name
+            produit_scrape["competitor_name"] = concurrent_name
+            produit_scrape["concurrent_name"] = concurrent_name
+            produit_scrape["nomConcurrent"] = concurrent_name
 
     score = _first_value(row, ["score", "scoreMatching", "score_matching", "match_score"])
     statut = _first_value(row, ["statut", "statutMatching", "statut_matching", "match_status"], "UNKNOWN")
@@ -148,8 +163,11 @@ def _normalize_scraped_row(row: dict, source_type: str = "catalog", parent_produ
         "produit_interne": produit_interne,
         "produitScrape": produit_scrape,
         "produit_scrape": produit_scrape,
-        "concurrent": produit_scrape.get("concurrent") or row.get("concurrent") or row.get("competitor_name"),
-        "concurrentId": produit_scrape.get("concurrentId") or row.get("concurrentId") or row.get("concurrent_id") or row.get("competitor_id"),
+        "concurrent": concurrent_name,
+        "competitor_name": concurrent_name,
+        "concurrent_name": concurrent_name,
+        "nomConcurrent": concurrent_name,
+        "concurrentId": produit_scrape.get("concurrentId") or row.get("concurrentId") or row.get("concurrent_id") or row.get("competitor_id") or row.get("competitorId"),
         "score": score_float if score_float is not None else score,
         "scoreMatching": score_float if score_float is not None else score,
         "match_score": score_float if score_float is not None else score,
@@ -188,6 +206,8 @@ def _extract_catalog_items(result: dict) -> list[dict]:
     rows.extend(_as_list(result.get("scraped_items")))
     rows.extend(_as_list(result.get("scraped_products")))
     rows.extend(_as_list(result.get("saved_items")))
+    # invalid_items restent disponibles dans result pour diagnostic,
+    # mais ne sont pas affichés comme produits à valider.
 
     for child in _as_list(result.get("results")):
         rows.extend(_as_list(child.get("items")))
@@ -213,6 +233,181 @@ def _normalize_ids(values: list[int] | None) -> list[int]:
             continue
 
     return list(dict.fromkeys(ids))
+
+
+def _model_to_dict(obj: Any) -> dict:
+    """
+    Convertit un modèle Pydantic / objet simple / dict en dictionnaire.
+    Utile pour lire les concurrents retournés par stock_client.get_competitors().
+    """
+    if obj is None:
+        return {}
+
+    if isinstance(obj, dict):
+        return obj
+
+    if hasattr(obj, "model_dump"):
+        try:
+            return obj.model_dump()
+        except Exception:
+            pass
+
+    if hasattr(obj, "dict"):
+        try:
+            return obj.dict()
+        except Exception:
+            pass
+
+    data = {}
+    for key in [
+        "id",
+        "nom",
+        "name",
+        "siteUrl",
+        "site_url",
+        "siteHostNormalized",
+        "site_host_normalized",
+    ]:
+        if hasattr(obj, key):
+            try:
+                data[key] = getattr(obj, key)
+            except Exception:
+                pass
+
+    return data
+
+
+def _build_competitor_name_map(stock_client: StockServiceClient | None = None) -> dict[int, str]:
+    """
+    Récupère les noms depuis stock_service /competitors.
+    La table réelle est :
+    - concurrents.id
+    - concurrents.nom
+
+    Si l'appel échoue, on retourne {} pour ne jamais casser le scraping.
+    """
+    try:
+        client = stock_client or StockServiceClient()
+        competitors = client.get_competitors()
+    except Exception as exc:
+        print(f"[dual-scheduler] Impossible de charger les concurrents: {exc}")
+        return {}
+
+    mapping: dict[int, str] = {}
+
+    for competitor in competitors or []:
+        data = _model_to_dict(competitor)
+
+        try:
+            competitor_id = int(data.get("id"))
+        except Exception:
+            continue
+
+        name = (
+            data.get("nom")
+            or data.get("name")
+            or data.get("siteHostNormalized")
+            or data.get("site_host_normalized")
+            or data.get("siteUrl")
+            or data.get("site_url")
+        )
+
+        if name:
+            mapping[competitor_id] = str(name)
+
+    return mapping
+
+
+def _resolve_competitor_name(row: dict, competitor_names: dict[int, str] | None = None) -> str | None:
+    """
+    Résout le nom du concurrent avec plusieurs fallbacks :
+    1. champs déjà présents dans la ligne ;
+    2. objet concurrent imbriqué ;
+    3. table concurrents via concurrent_id.
+    """
+    if not isinstance(row, dict):
+        return None
+
+    direct = _first_value(row, [
+        "concurrent",
+        "competitor_name",
+        "concurrent_name",
+        "nomConcurrent",
+        "concurrentName",
+        "site",
+        "source",
+    ])
+
+    if direct:
+        return str(direct)
+
+    nested = row.get("competitor") or row.get("concurrent_obj") or row.get("concurrentData")
+    if isinstance(nested, dict):
+        nested_name = _first_value(nested, ["nom", "name", "siteUrl", "siteHostNormalized"])
+        if nested_name:
+            return str(nested_name)
+
+    competitor_id = _first_value(row, [
+        "concurrentId",
+        "concurrent_id",
+        "competitor_id",
+        "competitorId",
+    ])
+
+    try:
+        competitor_id_int = int(competitor_id)
+    except Exception:
+        competitor_id_int = None
+
+    if competitor_id_int is not None and competitor_names:
+        return competitor_names.get(competitor_id_int)
+
+    return None
+
+
+def _enrich_competitor_names(rows: list, competitor_names: dict[int, str] | None = None) -> list:
+    """
+    Ajoute les champs attendus par le front :
+    - concurrent
+    - competitor_name
+    - concurrent_name
+    - nomConcurrent
+
+    Et les mêmes champs dans produitScrape / produit_scrape.
+    """
+    enriched: list = []
+
+    for row in rows or []:
+        if not isinstance(row, dict):
+            enriched.append(row)
+            continue
+
+        item = dict(row)
+        name = _resolve_competitor_name(item, competitor_names)
+
+        produit_scrape = item.get("produitScrape") or item.get("produit_scrape")
+        if isinstance(produit_scrape, dict):
+            nested_name = _resolve_competitor_name(produit_scrape, competitor_names)
+            name = name or nested_name
+
+        if name:
+            item["concurrent"] = name
+            item["competitor_name"] = name
+            item["concurrent_name"] = name
+            item["nomConcurrent"] = name
+
+            if isinstance(produit_scrape, dict):
+                produit_scrape = dict(produit_scrape)
+                produit_scrape["concurrent"] = name
+                produit_scrape["competitor_name"] = name
+                produit_scrape["concurrent_name"] = name
+                produit_scrape["nomConcurrent"] = name
+                item["produitScrape"] = produit_scrape
+                item["produit_scrape"] = produit_scrape
+
+        enriched.append(item)
+
+    return enriched
 
 
 class DualScrapingScheduler:
@@ -243,7 +438,7 @@ class DualScrapingScheduler:
             "product_jobs": {},
             "catalog_frequency": {
                 "enabled": False,
-                "interval_minutes": 360,
+                "interval_minutes": MIN_CATALOG_INTERVAL_MINUTES,
                 "competitor_id": None,
                 "next_run_at": None,
                 "last_run_at": None,
@@ -313,6 +508,7 @@ class DualScrapingScheduler:
         debug: bool = False,
         title: str | None = None,
         allow_past: bool = False,
+        launched_by_user_id: int | None = None,
     ) -> dict:
         ids = _normalize_ids(product_ids)
 
@@ -343,6 +539,7 @@ class DualScrapingScheduler:
             "failed": 0,
             "items": [],
             "error": None,
+            "launched_by_user_id": launched_by_user_id,
         }
 
         with self.lock:
@@ -384,6 +581,7 @@ class DualScrapingScheduler:
         product_ids: list[int],
         fast: bool = True,
         debug: bool = False,
+        launched_by_user_id: int | None = None,
     ) -> dict:
         job = self.create_product_job(
             product_ids=product_ids,
@@ -392,6 +590,7 @@ class DualScrapingScheduler:
             debug=debug,
             title="Scraping immédiat produits sélectionnés",
             allow_past=True,
+            launched_by_user_id=launched_by_user_id,
         )
 
         self._launch_product_job_thread(job["id"])
@@ -420,6 +619,7 @@ class DualScrapingScheduler:
         stock_client = StockServiceClient()
         scraper = ScrapingService()
         alerts = AlertClient()
+        competitor_names = _build_competitor_name_map(stock_client)
 
         try:
             with self.lock:
@@ -481,6 +681,7 @@ class DualScrapingScheduler:
 
                     summary = result.get("summary", {}) or {}
                     scraped_products = result.get("scraped_products", []) or result.get("saved_items", []) or []
+                    scraped_products = _enrich_competitor_names(scraped_products, competitor_names)
                     validation_items = _normalize_scraped_rows(
                         scraped_products,
                         source_type="product",
@@ -502,6 +703,21 @@ class DualScrapingScheduler:
                         "validation_items": validation_items,
                         "items": validation_items,
                     }
+                    try:
+                        stock_client.mark_competitive_analysis_finished(
+                            product_id=int(product_id),
+                            status="DONE",
+                            products_saved=int(item.get("products_saved") or 0),
+                            matched=int(item.get("matched") or 0),
+                            manual_review=int(item.get("manual_review") or 0),
+                            ignored=int(item.get("ignored") or 0),
+                        )
+                    except Exception as sync_exc:
+                        print(
+                            f"[dual-scheduler] Impossible de synchroniser la fin d'analyse concurrentielle "
+                            f"pour produit {product_id}: {sync_exc}",
+                            flush=True,
+                        )
 
                     with self.lock:
                         job = self.state["product_jobs"][job_id]
@@ -509,6 +725,34 @@ class DualScrapingScheduler:
                         job["done"] += 1
                         job["items"].append(item)
                         self._save()
+
+                    # Le produit ajouté/importé ne doit sortir de RUNNING qu'après
+                    # la fin réelle du scraping et l'enregistrement des résultats.
+                    try:
+                        stock_client.mark_product_competitive_analysis_finished(
+                            product_id=int(product_id),
+                            status="DONE",
+                            products_saved=int(item.get("products_saved") or 0),
+                            matched=int(item.get("matched") or 0),
+                            manual_review=int(item.get("manual_review") or 0),
+                            ignored=int(item.get("ignored") or 0),
+                        )
+                    except Exception as finish_exc:
+                        print(
+                            f"[dual-scheduler] Statut analyse concurrentielle non mis à jour pour produit {product_id}: {finish_exc}",
+                            flush=True,
+                        )
+
+                    # La recommandation concurrentielle devient prête seulement
+                    # après le scraping du produit et l'enregistrement des résultats.
+                    if int(item.get("matched") or 0) > 0 or int(item.get("products_saved") or 0) > 0:
+                        try:
+                            stock_client.trigger_price_recommendation_ready_alert(int(product_id))
+                        except Exception as alert_exc:
+                            print(
+                                f"[dual-scheduler] Alerte recommandation prix non envoyée pour produit {product_id}: {alert_exc}",
+                                flush=True,
+                            )
 
                 except Exception as exc:
                     item = {
@@ -518,6 +762,18 @@ class DualScrapingScheduler:
                         "status": "FAILED",
                         "error": str(exc),
                     }
+                    try:
+                        stock_client.mark_competitive_analysis_finished(
+                            product_id=int(product_id),
+                            status="FAILED",
+                            error=str(exc),
+                        )
+                    except Exception as sync_exc:
+                        print(
+                            f"[dual-scheduler] Impossible de synchroniser l'échec d'analyse concurrentielle "
+                            f"pour produit {product_id}: {sync_exc}",
+                            flush=True,
+                        )
 
                     with self.lock:
                         job = self.state["product_jobs"][job_id]
@@ -525,6 +781,18 @@ class DualScrapingScheduler:
                         job["failed"] += 1
                         job["items"].append(item)
                         self._save()
+
+                    try:
+                        stock_client.mark_product_competitive_analysis_finished(
+                            product_id=int(product_id),
+                            status="FAILED",
+                            error=str(exc),
+                        )
+                    except Exception as finish_exc:
+                        print(
+                            f"[dual-scheduler] Statut FAILED non mis à jour pour produit {product_id}: {finish_exc}",
+                            flush=True,
+                        )
 
             final_job = None
             with self.lock:
@@ -539,7 +807,29 @@ class DualScrapingScheduler:
                 final_job = dict(job)
                 self._save()
 
-            alerts.product_job_success(job=final_job or {})
+            manual_count = len((final_job or {}).get("validation_items", []) or [])
+            saved_count = sum(
+                int(item.get("products_saved") or 0)
+                for item in (final_job or {}).get("items", [])
+                if isinstance(item, dict)
+            )
+
+            alerts.scraping_success(
+                user_id=(final_job or {}).get("launched_by_user_id"),
+                job_id=job_id,
+                value=saved_count,
+                message=(
+                    f"Scraping produit terminé : "
+                    f"{(final_job or {}).get('done', 0)} produit(s) traité(s), "
+                    f"{saved_count} résultat(s) enregistré(s)."
+                ),
+            )
+
+            alerts.competitor_products_to_validate(
+                user_id=(final_job or {}).get("launched_by_user_id"),
+                job_id=job_id,
+                count=manual_count,
+            )
 
         except Exception as exc:
             with self.lock:
@@ -551,7 +841,11 @@ class DualScrapingScheduler:
                     job["error"] = str(exc)
                     self._save()
 
-            alerts.product_job_error(job_id=job_id, error=str(exc))
+            alerts.scraping_failed(
+                user_id=(job or {}).get("launched_by_user_id") if job else None,
+                job_id=job_id,
+                error=str(exc),
+            )
 
         finally:
             with self.lock:
@@ -566,7 +860,7 @@ class DualScrapingScheduler:
         interval_minutes: int,
         competitor_id: int | None = None,
     ) -> dict:
-        interval = max(5, int(interval_minutes))
+        interval = max(MIN_CATALOG_INTERVAL_MINUTES, int(interval_minutes))
 
         with self.lock:
             config = self.state["catalog_frequency"]
@@ -574,7 +868,10 @@ class DualScrapingScheduler:
             config["enabled"] = bool(enabled)
             config["interval_minutes"] = interval
             config["competitor_id"] = competitor_id
-            config["next_run_at"] = _iso(_now() + timedelta(minutes=interval))
+
+            # Quand l'utilisateur active la configuration, on lance au prochain tick
+            # au lieu d'attendre 3h. Les lancements suivants respecteront l'intervalle.
+            config["next_run_at"] = _iso(_now()) if enabled else None
             self._save()
 
             return dict(config)
@@ -583,7 +880,7 @@ class DualScrapingScheduler:
         with self.lock:
             return dict(self.state["catalog_frequency"])
 
-    def run_catalog_now(self, competitor_id: int | None = None) -> dict:
+    def run_catalog_now(self, competitor_id: int | None = None, launched_by_user_id: int | None = None,) -> dict:
         """
         Lance le scraping catalogue en arrière-plan.
 
@@ -594,6 +891,7 @@ class DualScrapingScheduler:
         self._launch_catalog_thread(
             trigger="manual",
             competitor_id_override=competitor_id,
+            launched_by_user_id=launched_by_user_id
         )
 
         return self.get_catalog_frequency()
@@ -602,6 +900,7 @@ class DualScrapingScheduler:
         self,
         trigger: str = "scheduled",
         competitor_id_override: int | None = None,
+        launched_by_user_id: int | None = None,
     ):
         with self.lock:
             if self.catalog_running:
@@ -626,13 +925,14 @@ class DualScrapingScheduler:
                 "started_at": _iso(_now()),
                 "finished_at": None,
                 "competitor_id": selected_competitor_id,
+                "launched_by_user_id": launched_by_user_id,
             }
 
             self._save()
 
         thread = threading.Thread(
             target=self._run_catalog_scraping,
-            args=(trigger, competitor_id_override),
+            args=(trigger, competitor_id_override, launched_by_user_id),
             daemon=True,
         )
 
@@ -642,9 +942,12 @@ class DualScrapingScheduler:
         self,
         trigger: str = "scheduled",
         competitor_id_override: int | None = None,
+        launched_by_user_id: int | None = None,
     ):
         scraper = ScrapingService()
         alerts = AlertClient()
+        stock_client = StockServiceClient()
+        competitor_names = _build_competitor_name_map(stock_client)
 
         try:
             with self.lock:
@@ -657,11 +960,28 @@ class DualScrapingScheduler:
                 )
 
             result = scraper.scrape_due_or_all(competitor_id=competitor_id)
+            if isinstance(result, dict):
+                for key in ["items", "scraped_items", "scraped_products", "saved_items"]:
+                    if isinstance(result.get(key), list):
+                        result[key] = _enrich_competitor_names(result.get(key), competitor_names)
+                for child in result.get("results") or []:
+                    if isinstance(child, dict):
+                        for key in ["items", "scraped_items", "scraped_products", "saved_items"]:
+                            if isinstance(child.get(key), list):
+                                child[key] = _enrich_competitor_names(child.get(key), competitor_names)
+
             normalized_items = _extract_catalog_items(result)
             if isinstance(result, dict):
                 result["items"] = normalized_items
                 result["scraped_items"] = normalized_items
                 result["validation_items"] = [item for item in normalized_items if item.get("actionRequired") or item.get("canValidate")]
+                result["catalog_summary"] = {
+                    "total_displayed": len(normalized_items),
+                    "matched": len([item for item in normalized_items if str(item.get("statutMatching") or item.get("match_status") or "").upper() == "MATCHED"]),
+                    "manual_review": len([item for item in normalized_items if str(item.get("statutMatching") or item.get("match_status") or "").upper() == "MANUAL_REVIEW"]),
+                    "ignored": len([item for item in normalized_items if str(item.get("statutMatching") or item.get("match_status") or "").upper() == "IGNORED"]),
+                    "invalid": int(result.get("invalid", 0) or 0),
+                }
 
             with self.lock:
                 config = self.state["catalog_frequency"]
@@ -688,13 +1008,29 @@ class DualScrapingScheduler:
                     config["next_run_at"] = _iso(
                         _now()
                         + timedelta(
-                            minutes=int(config.get("interval_minutes") or 360)
+                            minutes=max(MIN_CATALOG_INTERVAL_MINUTES, int(config.get("interval_minutes") or MIN_CATALOG_INTERVAL_MINUTES))
                         )
                     )
 
                 self._save()
 
-            alerts.catalog_success(trigger=trigger, result=result)
+            manual_count = len([
+            item for item in normalized_items
+            if item.get("actionRequired") or item.get("canValidate")
+            ])
+
+            alerts.scraping_success(
+                user_id=launched_by_user_id,
+                job_id=f"catalog-{trigger}",
+                value=len(normalized_items),
+                message=f"Scraping catalogue terminé : {len(normalized_items)} produit(s) collecté(s).",
+            )
+
+            alerts.competitor_products_to_validate(
+                user_id=launched_by_user_id,
+                job_id=f"catalog-{trigger}",
+                count=manual_count,
+            )
 
         except Exception as exc:
             with self.lock:
@@ -719,13 +1055,17 @@ class DualScrapingScheduler:
                     config["next_run_at"] = _iso(
                         _now()
                         + timedelta(
-                            minutes=int(config.get("interval_minutes") or 360)
+                            minutes=max(MIN_CATALOG_INTERVAL_MINUTES, int(config.get("interval_minutes") or MIN_CATALOG_INTERVAL_MINUTES))
                         )
                     )
 
                 self._save()
 
-            alerts.catalog_error(trigger=trigger, error=str(exc))
+            alerts.scraping_failed(
+                user_id=launched_by_user_id,
+                job_id=f"catalog-{trigger}",
+                error=str(exc),
+            )
 
         finally:
             with self.lock:
@@ -798,3 +1138,4 @@ def start_scheduler() -> None:
     thread = threading.Thread(target=_worker, daemon=True)
     thread.start()
     print("[dual-scheduler] worker démarré")
+    

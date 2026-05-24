@@ -102,7 +102,7 @@ def _discover_pending_competitors(db: Session, client: ScrapingServiceClient) ->
     competitors = (
         db.query(Competitor)
         .filter(Competitor.actif.is_(True))
-        .filter(Competitor.discovery_status.in_(["pending", "partial"]))
+        .filter(Competitor.statut_decouverte.in_(["pending", "partial"]))
         .order_by(Competitor.id.desc())
         .limit(20)
         .all()
@@ -112,7 +112,7 @@ def _discover_pending_competitors(db: Session, client: ScrapingServiceClient) ->
         try:
             discovery = client.discover_site(
                 competitor_name=competitor.nom,
-                site_url=competitor.site_url,
+                site_url=competitor.url_site,
             )
 
             catalogs = discovery.get("catalogs", []) if isinstance(discovery, dict) else []
@@ -120,10 +120,10 @@ def _discover_pending_competitors(db: Session, client: ScrapingServiceClient) ->
 
             _replace_catalogs(competitor, catalogs, db)
 
-            competitor.auto_keywords_json = keywords
-            competitor.discovery_status = "ready" if catalogs else "partial"
-            competitor.last_discovery_at = datetime.utcnow()
-            competitor.last_discovery_error = None if catalogs else "Aucun catalogue détecté automatiquement."
+            competitor.mots_cles_auto_json = keywords
+            competitor.statut_decouverte = "ready" if catalogs else "partial"
+            competitor.date_derniere_decouverte = datetime.utcnow()
+            competitor.erreur_derniere_decouverte = None if catalogs else "Aucun catalogue détecté automatiquement."
 
             db.commit()
 
@@ -134,16 +134,16 @@ def _discover_pending_competitors(db: Session, client: ScrapingServiceClient) ->
                     "competitor_id": competitor.id,
                     "competitor": competitor.nom,
                     "catalogs": len(catalogs),
-                    "status": competitor.discovery_status,
+                    "status": competitor.statut_decouverte,
                 }
             )
 
         except Exception as exc:
             logger.exception("Erreur discovery concurrent %s", competitor.id)
 
-            competitor.discovery_status = "partial"
-            competitor.last_discovery_at = datetime.utcnow()
-            competitor.last_discovery_error = str(exc)
+            competitor.statut_decouverte = "partial"
+            competitor.date_derniere_decouverte = datetime.utcnow()
+            competitor.erreur_derniere_decouverte = str(exc)
 
             db.commit()
 
@@ -167,6 +167,14 @@ def _scan_recent_products(
     max_products: int = 30,
     product_ids: list[int] | None = None,
 ) -> dict:
+    """
+    Lance le scraping après import CSV / ajout en masse.
+
+    Correction importante :
+    - Avant : un appel /jobs/search-product par produit + statut DONE immédiat.
+    - Maintenant : un seul job /jobs/product-run-now pour tous les produits.
+    - Le statut final DONE/FAILED sera mis à jour par scraping_service à la fin réelle.
+    """
     result = {
         "products_to_scan": len(product_ids or []),
         "products_scanned": 0,
@@ -192,70 +200,66 @@ def _scan_recent_products(
         max_products=max_products,
     )
 
-    result["products_to_scan"] = len(products)
+    ids = [int(product.id) for product in products if product.id is not None]
+    result["products_to_scan"] = len(ids)
+
+    if not ids:
+        return result
 
     for product in products:
-        try:
-            product.analyse_concurrentielle_statut = "RUNNING"
-            product.analyse_concurrentielle_date = None
+        product.analyse_concurrentielle_statut = "RUNNING"
+        product.analyse_concurrentielle_date = None
 
-            if getattr(product, "statut_prix", None) != "PRIX_VALIDE":
-                product.statut_prix = "EN_ATTENTE_PRICING"
+        if getattr(product, "statut_prix", None) != "PRIX_VALIDE":
+            product.statut_prix = "EN_ATTENTE_PRICING"
 
-            db.commit()
+    db.commit()
 
-            scan = client.search_product_on_competitors(
-                product=_product_payload(product),
-                debug=False,
-            )
+    job = client.run_product_job_now(
+        product_ids=ids,
+        fast=True,
+        debug=False,
+    )
 
-            if scan.get("status") == "error":
-                raise Exception(scan.get("error", "Erreur scraping inconnue"))
-
-            product.analyse_concurrentielle_statut = "DONE"
-            product.analyse_concurrentielle_date = datetime.utcnow()
-
-            if getattr(product, "statut_prix", None) != "PRIX_VALIDE":
-                product.statut_prix = "RECOMMANDATION_PRETE"
-
-            db.commit()
-
-            result["products_scanned"] += 1
-            result["details"].append(
-                {
-                    "type": "product_scan",
-                    "product_id": product.id,
-                    "sku": product.sku,
-                    "status": "DONE",
-                    "scan_status": scan.get("status"),
-                    "message": "Scan concurrents terminé.",
-                }
-            )
-
-        except Exception as exc:
-            logger.exception("Erreur scan produit %s", product.id)
-
+    if job.get("status") == "error":
+        for product in products:
             product.analyse_concurrentielle_statut = "FAILED"
             product.analyse_concurrentielle_date = datetime.utcnow()
 
             if getattr(product, "statut_prix", None) != "PRIX_VALIDE":
                 product.statut_prix = "RECOMMANDATION_PRETE"
 
-            db.commit()
+        db.commit()
 
-            result["products_failed"] += 1
-            result["details"].append(
-                {
-                    "type": "product_scan",
-                    "product_id": product.id,
-                    "sku": product.sku,
-                    "status": "FAILED",
-                    "error": str(exc),
-                    "message": "Scraping échoué, mais recommandation interne disponible.",
-                }
-            )
+        result["products_failed"] = len(ids)
+        result["details"].append(
+            {
+                "type": "product_scan_job",
+                "status": "FAILED",
+                "product_ids": ids,
+                "error": job.get("error"),
+                "message": "Le job scraping après import n'a pas pu être lancé.",
+            }
+        )
+
+        return result
+
+    result["products_scanned"] = len(ids)
+    result["details"].append(
+        {
+            "type": "product_scan_job",
+            "status": "SCHEDULED",
+            "product_ids": ids,
+            "job_id": job.get("id") or job.get("job_id"),
+            "message": (
+                "Job scraping lancé après import. "
+                "Le statut final sera mis à jour automatiquement à la fin du scraping."
+            ),
+        }
+    )
 
     return result
+
 
 def run_post_import_workflow_service(
     db: Session,

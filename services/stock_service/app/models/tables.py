@@ -177,35 +177,36 @@ class StockMovement(Base):
 
 
 class SalesHistory(Base):
-    __tablename__ = "historique_ventes"
+    __tablename__ = "sales_history"
 
     __table_args__ = (
         UniqueConstraint(
             "date",
             "store_id",
             "product_id",
-            name="uq_sales_history_date_store_product",
+            name="uq_sales_history_date_store_product_v2",
         ),
     )
 
     id = Column(Integer, primary_key=True)
-    date = Column(Date, nullable=False, index=True)
-    store_id = Column(String(100), nullable=False, index=True)
-    product_id = Column(String(100), nullable=False, index=True)  # SKU
+    date = Column(Date, nullable=False)
 
-    category = Column(String(100), nullable=True)
+    magasin_id = Column("store_id", String(100), nullable=False)
+    produit_id = Column("product_id", String(100), nullable=False)
+
+    categorie = Column("category", String(100), nullable=True)
     region = Column(String(100), nullable=True)
-    sales = Column(Float, nullable=False)
-    price = Column(Float, nullable=False)
+    ventes = Column("sales", Float, nullable=False)
+    prix = Column("price", Float, nullable=False)
     stock = Column(Float, nullable=True)
-    discount = Column(Float, nullable=True)
-    competitor_pricing = Column(Float, nullable=True)
-    units_ordered = Column(Float, nullable=True)
-    weather_condition = Column(String(100), nullable=True)
-    holiday_promotion = Column(Integer, nullable=True)
-    seasonality = Column(String(50), nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
-
+    remise = Column("discount", Float, nullable=True)
+    prix_concurrent = Column("competitor_pricing", Float, nullable=True)
+    unites_commandees = Column("units_ordered", Float, nullable=True)
+    condition_meteo = Column("weather_condition", String(100), nullable=True)
+    promotion_jour_ferie = Column("holiday_promotion", Integer, nullable=True)
+    saisonnalite = Column("seasonality", String(50), nullable=True)
+    date_creation = Column("created_at", DateTime, default=datetime.utcnow, nullable=False)
+    
 class Competitor(Base):
     __tablename__ = "concurrents"
     __table_args__ = (
@@ -214,22 +215,25 @@ class Competitor(Base):
 
     id = Column(Integer, primary_key=True)
     nom = Column(String(255), nullable=False)
-    site_url = Column("siteUrl", String(500), nullable=False)
-    site_host_normalized = Column("siteHostNormalized", String(255), nullable=False, index=True)
+
+    # Colonnes DB conservées, attributs Python francisés
+    url_site = Column("siteUrl", String(500), nullable=False)
+    hote_site_normalise = Column("siteHostNormalized", String(255), nullable=False, index=True)
 
     actif = Column(Boolean, default=True, nullable=False)
     frequence_scraping_heures = Column("frequenceScrapingHeures", Integer, default=24, nullable=False)
     dernier_scraping = Column("dernierScraping", DateTime, nullable=True)
 
-    discovery_status = Column("discoveryStatus", String(50), default="pending", nullable=False)
-    last_discovery_at = Column("lastDiscoveryAt", DateTime, nullable=True)
-    last_discovery_error = Column("lastDiscoveryError", Text, nullable=True)
+    statut_decouverte = Column("discoveryStatus", String(50), default="pending", nullable=False)
+    date_derniere_decouverte = Column("lastDiscoveryAt", DateTime, nullable=True)
+    erreur_derniere_decouverte = Column("lastDiscoveryError", Text, nullable=True)
 
-    auto_keywords_json = Column("autoKeywordsJson", JSON, default=list, nullable=False)
-    selectors_override_json = Column("selectorsOverrideJson", JSON, default=dict, nullable=False)
+    mots_cles_auto_json = Column("autoKeywordsJson", JSON, default=list, nullable=False)
+    selecteurs_override_json = Column("selectorsOverrideJson", JSON, default=dict, nullable=False)
+    urls_recherche = Column("url_recherche", JSON, default=list, nullable=False)
 
-    created_at = Column("createdAt", DateTime, default=datetime.utcnow, nullable=False)
-    updated_at = Column(
+    date_creation = Column("createdAt", DateTime, default=datetime.utcnow, nullable=False)
+    date_modification = Column(
         "updatedAt",
         DateTime,
         default=datetime.utcnow,
@@ -237,9 +241,9 @@ class Competitor(Base):
         nullable=False,
     )
 
-    catalogs = relationship(
+    catalogues = relationship(
         "CompetitorCatalog",
-        back_populates="competitor",
+        back_populates="concurrent",
         cascade="all, delete-orphan",
     )
 
@@ -251,28 +255,32 @@ class CompetitorCatalog(Base):
     )
 
     id = Column(Integer, primary_key=True)
-    competitor_id = Column(
+
+    concurrent_id = Column(
+        "competitor_id",
         Integer,
         ForeignKey("concurrents.id", ondelete="CASCADE"),
         nullable=False,
         index=True,
     )
 
-    title = Column(String(255), nullable=False)
+    titre = Column("title", String(255), nullable=False)
     url = Column(String(700), nullable=False)
-    url_key = Column("urlKey", String(700), nullable=False)
+    cle_url = Column("urlKey", String(700), nullable=False)
 
-    parent_url = Column("parentUrl", String(700), nullable=True)
-    depth = Column(Integer, default=0, nullable=False)
+    url_parent = Column("parentUrl", String(700), nullable=True)
+    profondeur = Column("depth", Integer, default=0, nullable=False)
     score = Column(Float, default=0.0, nullable=False)
     source = Column(String(50), default="auto_discovery", nullable=False)
 
-    is_selected = Column("isSelected", Boolean, default=True, nullable=False)
-    is_active = Column("isActive", Boolean, default=True, nullable=False)
+    # isSelected n'est plus utilisé fonctionnellement.
+    # On le garde en compatibilité DB pour éviter les erreurs si la colonne existe encore en NOT NULL.
+    _is_selected_legacy = Column("isSelected", Boolean, default=True, nullable=False)
 
-    discovered_at = Column("discoveredAt", DateTime, default=datetime.utcnow, nullable=False)
+    actif = Column("isActive", Boolean, default=True, nullable=False)
+    date_decouverte = Column("discoveredAt", DateTime, default=datetime.utcnow, nullable=False)
 
-    competitor = relationship("Competitor", back_populates="catalogs")
+    concurrent = relationship("Competitor", back_populates="catalogues")
 
 
 class ProductCompetitor(Base):
@@ -300,7 +308,7 @@ class ProductCompetitor(Base):
     ancien_prix_concurrent = Column("ancienPrixConcurrent", Float, nullable=True)
 
     is_promo = Column("isPromo", Boolean, default=False, nullable=False)
-    disponibilite = Column(String(100), nullable=True)
+    disponibilite = Column(Text, nullable=True)
     date_collecte = Column("dateCollecte", DateTime, nullable=True)
     fiable = Column(Boolean, default=True, nullable=False)
 
