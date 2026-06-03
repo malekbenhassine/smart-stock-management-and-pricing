@@ -1,6 +1,25 @@
 from typing import Any, Dict, List, Optional
 
-from pydantic import AliasChoices, BaseModel, ConfigDict, Field, HttpUrl
+from pydantic import AliasChoices, BaseModel, ConfigDict, Field, HttpUrl, field_validator
+
+
+ALLOWED_SCRAPING_FREQUENCY_HOURS = {6, 12, 24}
+DEFAULT_SCRAPING_FREQUENCY_HOURS = 24
+
+
+def validate_scraping_frequency(value):
+    if value is None or value == "":
+        return DEFAULT_SCRAPING_FREQUENCY_HOURS
+
+    try:
+        number = int(value)
+    except Exception as exc:
+        raise ValueError("La fréquence doit être 6h, 12h ou 24h.") from exc
+
+    if number not in ALLOWED_SCRAPING_FREQUENCY_HOURS:
+        raise ValueError("La fréquence doit être 6h, 12h ou 24h.")
+
+    return number
 
 
 class CompetitorCreate(BaseModel):
@@ -14,9 +33,7 @@ class CompetitorCreate(BaseModel):
     )
     actif: bool = True
     frequence_scraping_heures: int = Field(
-        default=3,
-        ge=3,
-        le=168,
+        default=DEFAULT_SCRAPING_FREQUENCY_HOURS,
         validation_alias=AliasChoices(
             "frequence_scraping_heures",
             "frequencescrapingheures",
@@ -24,6 +41,11 @@ class CompetitorCreate(BaseModel):
         ),
         serialization_alias="frequence_scraping_heures",
     )
+
+    @field_validator("frequence_scraping_heures", mode="before")
+    @classmethod
+    def validate_frequency(cls, value):
+        return validate_scraping_frequency(value)
 
 
 class CompetitorUpdate(BaseModel):
@@ -38,8 +60,6 @@ class CompetitorUpdate(BaseModel):
     actif: Optional[bool] = None
     frequence_scraping_heures: Optional[int] = Field(
         default=None,
-        ge=3,
-        le=168,
         validation_alias=AliasChoices(
             "frequence_scraping_heures",
             "frequencescrapingheures",
@@ -47,6 +67,13 @@ class CompetitorUpdate(BaseModel):
         ),
         serialization_alias="frequence_scraping_heures",
     )
+
+    @field_validator("frequence_scraping_heures", mode="before")
+    @classmethod
+    def validate_frequency(cls, value):
+        if value is None or value == "":
+            return None
+        return validate_scraping_frequency(value)
 
 
 class CompetitorAdvancedConfigUpdate(BaseModel):

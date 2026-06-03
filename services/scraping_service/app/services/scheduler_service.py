@@ -16,7 +16,10 @@ from app.services.alert_client import AlertClient
 
 STATE_FILE = Path("/app/.scheduler/dual_scraping_scheduler.json")
 CHECK_EVERY_SECONDS = 5
-MIN_CATALOG_INTERVAL_MINUTES = 180  # 3 heures minimum
+LEGACY_CATALOG_INTERVAL_MINUTES = 1440  # conservé pour compatibilité, non utilisé comme fréquence métier
+CATALOG_DB_SYNC_SECONDS = 60
+ALLOWED_CATALOG_FREQUENCY_HOURS = {6, 12, 24}
+DEFAULT_CATALOG_FREQUENCY_HOURS = 24
 
 _scheduler_started = False
 
@@ -426,19 +429,22 @@ class DualScrapingScheduler:
        - lancé dans un thread séparé
        - évite les 504 côté frontend/API gateway
 
-    L'état est sauvegardé dans un fichier JSON.
+    L'état détaillé des jobs est sauvegardé dans un fichier JSON.
+    La configuration minimale du scraping catalogue (enabled, interval_minutes,
+    competitor_id, next_run_at) est persistée en base via stock_service.
     """
 
     def __init__(self):
         self.lock = threading.Lock()
         self.running_product_job_ids: set[str] = set()
         self.catalog_running = False
+        self._last_catalog_db_sync_monotonic = 0.0
 
         self.state: dict[str, Any] = {
             "product_jobs": {},
             "catalog_frequency": {
                 "enabled": False,
-                "interval_minutes": MIN_CATALOG_INTERVAL_MINUTES,
+                "interval_minutes": LEGACY_CATALOG_INTERVAL_MINUTES,
                 "competitor_id": None,
                 "next_run_at": None,
                 "last_run_at": None,
@@ -451,6 +457,222 @@ class DualScrapingScheduler:
         }
 
         self._load()
+        self._sync_catalog_frequency_from_db(force=True)
+
+    # ------------------------------------------------------------------
+    # Persistence DB minimale de la configuration catalogue
+    # ------------------------------------------------------------------
+    def _catalog_db_payload(self, config: dict | None = None) -> dict:
+        config = config or self.state.get("catalog_frequency", {}) or {}
+        return {
+            "enabled": bool(config.get("enabled")),
+            # Champ legacy conservé pour compatibilité. La vraie fréquence vient du concurrent.
+            "interval_minutes": int(config.get("interval_minutes") or LEGACY_CATALOG_INTERVAL_MINUTES),
+            "competitor_id": config.get("competitor_id"),
+            "next_run_at": config.get("next_run_at"),
+        }
+
+    def _normalize_competitor_frequency_hours(self, value: Any) -> int:
+        try:
+            frequency = int(value)
+        except Exception:
+            frequency = DEFAULT_CATALOG_FREQUENCY_HOURS
+
+        return frequency if frequency in ALLOWED_CATALOG_FREQUENCY_HOURS else DEFAULT_CATALOG_FREQUENCY_HOURS
+
+    def _parse_optional_competitor_datetime(self, competitor: Any, field_names: list[str]) -> datetime | None:
+        for field_name in field_names:
+            value = getattr(competitor, field_name, None)
+            if not value:
+                continue
+            try:
+                return _parse_datetime(str(value))
+            except Exception:
+                continue
+        return None
+
+    def _compute_competitor_next_scraping_at(self, competitor: Any) -> datetime | None:
+        """
+        Calcule le prochain scraping d'un seul concurrent.
+
+        Règle métier :
+        - déjà scrapé : dernier_scraping + fréquence ;
+        - jamais scrapé : date_creation + fréquence.
+
+        Donc un concurrent ajouté maintenant avec une fréquence de 6h
+        ne part pas tout de suite : il part dans 6h.
+        """
+        frequency = self._normalize_competitor_frequency_hours(
+            getattr(competitor, "frequence_scraping_heures", DEFAULT_CATALOG_FREQUENCY_HOURS)
+        )
+
+        base_dt = self._parse_optional_competitor_datetime(
+            competitor,
+            ["dernier_scraping"],
+        )
+
+        if base_dt is None:
+            base_dt = self._parse_optional_competitor_datetime(
+                competitor,
+                ["date_creation", "created_at"],
+            )
+
+        if base_dt is None:
+            # Par sécurité, si la date de création n'est pas remontée par l'API,
+            # on planifie après la fréquence au lieu de lancer immédiatement.
+            base_dt = _now()
+
+        return base_dt + timedelta(hours=frequency)
+
+    def _compute_next_catalog_job(self, competitor_id: int | None = None) -> dict | None:
+        """
+        Retourne le prochain concurrent à scraper et son heure exacte.
+
+        Important : on ne retourne qu'UN seul concurrent.
+        Si plusieurs concurrents sont échus, ils seront traités un par un,
+        chacun dans un run séparé.
+        """
+        try:
+            competitors = StockServiceClient().get_competitors()
+        except Exception as exc:
+            print(f"[dual-scheduler] Impossible de calculer le prochain scraping: {exc}", flush=True)
+            return None
+
+        candidates: list[dict] = []
+
+        for competitor in competitors:
+            current_id = int(getattr(competitor, "id", 0) or 0)
+
+            if competitor_id is not None and current_id != int(competitor_id):
+                continue
+
+            if getattr(competitor, "actif", True) is False:
+                continue
+
+            discovery_status = str(getattr(competitor, "discovery_status", "") or "").lower()
+            if discovery_status and discovery_status not in {"ready", "partial"}:
+                continue
+
+            next_at = self._compute_competitor_next_scraping_at(competitor)
+            if next_at is None:
+                continue
+
+            candidates.append({
+                "competitor_id": current_id,
+                "competitor_name": getattr(competitor, "nom", None),
+                "next_at": next_at,
+            })
+
+        if not candidates:
+            return None
+
+        return min(candidates, key=lambda item: item["next_at"])
+
+    def _compute_next_catalog_due_at(self, competitor_id: int | None = None) -> datetime | None:
+        job = self._compute_next_catalog_job(competitor_id=competitor_id)
+        return job.get("next_at") if job else None
+
+    def _get_due_catalog_competitor_id(self, competitor_id: int | None = None) -> int | None:
+        job = self._compute_next_catalog_job(competitor_id=competitor_id)
+        if not job:
+            return None
+
+        next_at = job.get("next_at")
+        if not isinstance(next_at, datetime) or next_at > _now():
+            return None
+
+        return int(job.get("competitor_id"))
+
+    def _refresh_next_catalog_run_at(self, persist_to_db: bool = False) -> str | None:
+        with self.lock:
+            config = self.state["catalog_frequency"]
+            enabled = bool(config.get("enabled"))
+            competitor_id = config.get("competitor_id")
+            existing_next_run_at = config.get("next_run_at")
+            last_status = str(config.get("last_status") or "").upper()
+
+        # Après un échec, on garde le délai de retry déjà enregistré
+        # pour éviter de relancer immédiatement le même scraping en boucle.
+        if enabled and last_status == "FAILED" and existing_next_run_at:
+            try:
+                if _parse_datetime(existing_next_run_at) > _now():
+                    return existing_next_run_at
+            except Exception:
+                pass
+
+        next_due = self._compute_next_catalog_due_at(competitor_id=competitor_id) if enabled else None
+        next_due_iso = _iso(next_due) if next_due else None
+
+        with self.lock:
+            config = self.state["catalog_frequency"]
+            if config.get("next_run_at") != next_due_iso:
+                config["next_run_at"] = next_due_iso
+                self._save()
+                payload = self._catalog_db_payload(config)
+            else:
+                payload = None
+
+        if persist_to_db and payload:
+            self._save_catalog_frequency_to_db(payload)
+
+        return next_due_iso
+
+    def _save_catalog_frequency_to_db(self, payload: dict | None = None) -> None:
+        """
+        Sauvegarde uniquement les champs nécessaires dans la base via stock_service.
+        Le JSON reste utilisé pour les jobs, l'historique et le résultat du dernier run.
+        """
+        try:
+            StockServiceClient().save_catalog_frequency_config(
+                payload or self._catalog_db_payload()
+            )
+        except Exception as exc:
+            # On ne bloque pas le scraping si stock_service est momentanément indisponible.
+            print(
+                f"[dual-scheduler] Configuration catalogue non sauvegardée en base: {exc}",
+                flush=True,
+            )
+
+    def _sync_catalog_frequency_from_db(self, force: bool = False) -> None:
+        """
+        Recharge périodiquement la configuration minimale depuis la base.
+        Cela permet de garder enabled=True même après rebuild / redémarrage Docker.
+        """
+        now_monotonic = time.monotonic()
+        if not force and (
+            now_monotonic - self._last_catalog_db_sync_monotonic
+            < CATALOG_DB_SYNC_SECONDS
+        ):
+            return
+
+        self._last_catalog_db_sync_monotonic = now_monotonic
+
+        try:
+            db_config = StockServiceClient().get_catalog_frequency_config()
+        except Exception as exc:
+            print(
+                f"[dual-scheduler] Configuration catalogue non chargée depuis la base: {exc}",
+                flush=True,
+            )
+            return
+
+        if not isinstance(db_config, dict):
+            return
+
+        save_back_to_db = False
+        payload_to_save = None
+
+        with self.lock:
+            config = self.state["catalog_frequency"]
+            config["enabled"] = bool(db_config.get("enabled"))
+            config["interval_minutes"] = int(db_config.get("interval_minutes") or LEGACY_CATALOG_INTERVAL_MINUTES)
+            config["competitor_id"] = db_config.get("competitor_id")
+            config["next_run_at"] = db_config.get("next_run_at")
+            self._save()
+
+        # Dès que la configuration est chargée, le prochain lancement est recalculé
+        # à partir de concurrents.frequenceScrapingHeures.
+        self._refresh_next_catalog_run_at(persist_to_db=True)
 
     # ------------------------------------------------------------------
     # Persistence JSON
@@ -468,6 +690,20 @@ class DualScrapingScheduler:
                     data.get("catalog_frequency", {}) or {}
                 )
 
+                # Si le service redémarre pendant un scraping produit, le thread
+                # Python précédent n'existe plus. On évite donc de garder un job
+                # bloqué visuellement en RUNNING / En cours.
+                changed = False
+                for product_job in self.state["product_jobs"].values():
+                    if product_job.get("status") in ("RUNNING", "CANCEL_REQUESTED"):
+                        product_job["status"] = "FAILED"
+                        product_job["finished_at"] = _iso(_now())
+                        product_job["error"] = (
+                            "Le service a redémarré pendant l'exécution du scraping produit."
+                        )
+                        product_job["cancel_requested"] = False
+                        changed = True
+
                 current_run = self.state["catalog_frequency"].get("current_run")
                 if current_run and current_run.get("status") == "RUNNING":
                     current_run["status"] = "FAILED"
@@ -483,6 +719,10 @@ class DualScrapingScheduler:
                     self.state["catalog_frequency"]["last_finished_at"] = _iso(
                         _now()
                     )
+                    changed = True
+
+                if changed:
+                    self._save()
 
         except Exception as exc:
             print(f"[dual-scheduler] Impossible de charger l'état: {exc}")
@@ -567,14 +807,25 @@ class DualScrapingScheduler:
             if not job:
                 raise ValueError("Job introuvable.")
 
-            if job.get("status") == "RUNNING":
-                raise ValueError("Impossible d'annuler un job déjà en cours.")
-
+            # Avant : le backend refusait l'annulation d'un job RUNNING.
+            # Maintenant : on marque le job comme annulé et le worker vérifie
+            # ce flag avant d'enregistrer de nouveaux résultats.
+            job["cancel_requested"] = True
             job["status"] = "CANCELLED"
             job["finished_at"] = _iso(_now())
+            job["error"] = "Scraping annulé par l'utilisateur."
             self._save()
 
             return dict(job)
+
+    def _is_product_job_cancelled(self, job_id: str) -> bool:
+        with self.lock:
+            job = self.state["product_jobs"].get(job_id)
+            return bool(
+                not job
+                or job.get("cancel_requested")
+                or job.get("status") == "CANCELLED"
+            )
 
     def run_product_job_now(
         self,
@@ -628,6 +879,12 @@ class DualScrapingScheduler:
                 if not job:
                     return
 
+                if job.get("cancel_requested") or job.get("status") == "CANCELLED":
+                    job["status"] = "CANCELLED"
+                    job["finished_at"] = job.get("finished_at") or _iso(_now())
+                    self._save()
+                    return
+
                 job["status"] = "RUNNING"
                 job["started_at"] = _iso(_now())
                 job["processed"] = 0
@@ -647,6 +904,9 @@ class DualScrapingScheduler:
             }
 
             for product_id in product_ids:
+                if self._is_product_job_cancelled(job_id):
+                    return
+
                 product = product_by_id.get(int(product_id))
 
                 if not product:
@@ -678,6 +938,11 @@ class DualScrapingScheduler:
                         raise Exception(
                             result.get("error", "Erreur scraping inconnue")
                         )
+
+                    # Si l'utilisateur a annulé pendant que la recherche était
+                    # en cours, on n'enregistre pas le résultat et on sort.
+                    if self._is_product_job_cancelled(job_id):
+                        return
 
                     summary = result.get("summary", {}) or {}
                     scraped_products = result.get("scraped_products", []) or result.get("saved_items", []) or []
@@ -797,6 +1062,13 @@ class DualScrapingScheduler:
             final_job = None
             with self.lock:
                 job = self.state["product_jobs"][job_id]
+
+                if job.get("cancel_requested") or job.get("status") == "CANCELLED":
+                    job["status"] = "CANCELLED"
+                    job["finished_at"] = job.get("finished_at") or _iso(_now())
+                    self._save()
+                    return
+
                 job["status"] = "DONE" if job["failed"] == 0 else "DONE_WITH_ERRORS"
                 job["finished_at"] = _iso(_now())
                 all_scraped_items = []
@@ -860,7 +1132,9 @@ class DualScrapingScheduler:
         interval_minutes: int,
         competitor_id: int | None = None,
     ) -> dict:
-        interval = max(MIN_CATALOG_INTERVAL_MINUTES, int(interval_minutes))
+        # interval_minutes est conservé uniquement pour compatibilité API.
+        # La fréquence réelle est définie lors de l'ajout/modification du concurrent.
+        interval = int(interval_minutes or LEGACY_CATALOG_INTERVAL_MINUTES)
 
         with self.lock:
             config = self.state["catalog_frequency"]
@@ -868,15 +1142,21 @@ class DualScrapingScheduler:
             config["enabled"] = bool(enabled)
             config["interval_minutes"] = interval
             config["competitor_id"] = competitor_id
-
-            # Quand l'utilisateur active la configuration, on lance au prochain tick
-            # au lieu d'attendre 3h. Les lancements suivants respecteront l'intervalle.
-            config["next_run_at"] = _iso(_now()) if enabled else None
+            config["next_run_at"] = None
             self._save()
 
-            return dict(config)
+        self._refresh_next_catalog_run_at(persist_to_db=False)
+
+        with self.lock:
+            config = self.state["catalog_frequency"]
+            result = dict(config)
+            db_payload = self._catalog_db_payload(config)
+
+        self._save_catalog_frequency_to_db(db_payload)
+        return result
 
     def get_catalog_frequency(self) -> dict:
+        self._sync_catalog_frequency_from_db(force=False)
         with self.lock:
             return dict(self.state["catalog_frequency"])
 
@@ -959,7 +1239,10 @@ class DualScrapingScheduler:
                     else config.get("competitor_id")
                 )
 
-            result = scraper.scrape_due_or_all(competitor_id=competitor_id)
+            result = scraper.scrape_due_or_all(
+                competitor_id=competitor_id,
+                force_all=(trigger == "manual" and competitor_id is None),
+            )
             if isinstance(result, dict):
                 for key in ["items", "scraped_items", "scraped_products", "saved_items"]:
                     if isinstance(result.get(key), list):
@@ -1004,15 +1287,9 @@ class DualScrapingScheduler:
                     *(config.get("runs_history") or []),
                 ][:20]
 
-                if config.get("enabled"):
-                    config["next_run_at"] = _iso(
-                        _now()
-                        + timedelta(
-                            minutes=max(MIN_CATALOG_INTERVAL_MINUTES, int(config.get("interval_minutes") or MIN_CATALOG_INTERVAL_MINUTES))
-                        )
-                    )
-
                 self._save()
+
+            self._refresh_next_catalog_run_at(persist_to_db=True)
 
             manual_count = len([
             item for item in normalized_items
@@ -1052,14 +1329,14 @@ class DualScrapingScheduler:
                 ][:20]
 
                 if config.get("enabled"):
-                    config["next_run_at"] = _iso(
-                        _now()
-                        + timedelta(
-                            minutes=max(MIN_CATALOG_INTERVAL_MINUTES, int(config.get("interval_minutes") or MIN_CATALOG_INTERVAL_MINUTES))
-                        )
-                    )
+                    # En cas d'échec, on évite une boucle immédiate infinie.
+                    # Le scheduler réessaiera au prochain cycle de vérification.
+                    config["next_run_at"] = _iso(_now() + timedelta(minutes=60))
 
                 self._save()
+                db_payload = self._catalog_db_payload(config)
+
+            self._save_catalog_frequency_to_db(db_payload)
 
             alerts.scraping_failed(
                 user_id=launched_by_user_id,
@@ -1075,6 +1352,7 @@ class DualScrapingScheduler:
     # Main worker
     # ------------------------------------------------------------------
     def tick(self):
+        self._sync_catalog_frequency_from_db(force=False)
         now = _now()
 
         # Jobs produits sélectionnés
@@ -1093,20 +1371,34 @@ class DualScrapingScheduler:
             if run_at <= now:
                 self._launch_product_job_thread(job["id"])
 
-        # Fréquence scraping catalogues/sites
+        # Scraping catalogues/sites : la fréquence est définie par concurrent
+        # (6h, 12h ou 24h), pas par une fréquence globale.
         with self.lock:
             config = self.state["catalog_frequency"]
             enabled = bool(config.get("enabled"))
-            next_run_at = config.get("next_run_at")
 
-        if enabled and next_run_at:
-            try:
-                dt = _parse_datetime(next_run_at)
+        if enabled and not self.catalog_running:
+            next_run_at = self._refresh_next_catalog_run_at(persist_to_db=True)
 
-                if dt <= now:
-                    self._launch_catalog_thread(trigger="scheduled")
-            except Exception:
-                pass
+            if next_run_at:
+                try:
+                    dt = _parse_datetime(next_run_at)
+
+                    if dt <= now:
+                        with self.lock:
+                            selected_competitor_id = self.state["catalog_frequency"].get("competitor_id")
+
+                        due_competitor_id = self._get_due_catalog_competitor_id(
+                            competitor_id=selected_competitor_id
+                        )
+
+                        if due_competitor_id is not None:
+                            self._launch_catalog_thread(
+                                trigger="scheduled",
+                                competitor_id_override=due_competitor_id,
+                            )
+                except Exception:
+                    pass
 
     def status(self) -> dict:
         return {

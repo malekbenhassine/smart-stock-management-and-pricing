@@ -8,6 +8,7 @@ from typing import Any
 from sqlalchemy import func, or_, text
 from sqlalchemy.orm import Session
 
+from app.services.product_normalization import normalize_brand, normalize_category
 from app.models.tables import (
     Competitor,
     Product,
@@ -125,29 +126,28 @@ class DashboardMetricsService:
     # ======================================================
 
     def filters(self) -> dict[str, Any]:
-        categories = [
-            row.categorie
-            for row in (
-                self.db.query(Product.categorie.label("categorie"))
-                .filter(Product.categorie.isnot(None))
-                .distinct()
-                .order_by(Product.categorie.asc())
-                .all()
-            )
-            if row.categorie
-        ]
+        category_values: dict[str, str] = {}
+        for row in (
+            self.db.query(Product.categorie.label("categorie"))
+            .filter(Product.categorie.isnot(None))
+            .all()
+        ):
+            value = normalize_category(row.categorie)
+            if value:
+                category_values[value.lower()] = value
 
-        marques = [
-            row.marque
-            for row in (
-                self.db.query(Product.marque.label("marque"))
-                .filter(Product.marque.isnot(None))
-                .distinct()
-                .order_by(Product.marque.asc())
-                .all()
-            )
-            if row.marque
-        ]
+        brand_values: dict[str, str] = {}
+        for row in (
+            self.db.query(Product.marque.label("marque"))
+            .filter(Product.marque.isnot(None))
+            .all()
+        ):
+            value = normalize_brand(row.marque)
+            if value:
+                brand_values[value.lower()] = value
+
+        categories = sorted(category_values.values(), key=str.lower)
+        marques = sorted(brand_values.values(), key=str.lower)
 
         return {
             "periods": [
@@ -198,11 +198,8 @@ class DashboardMetricsService:
             Product.statut.label("statut"),
         )
 
-        if filters.get("categorie"):
-            q = q.filter(Product.categorie == filters["categorie"])
-
-        if filters.get("marque"):
-            q = q.filter(Product.marque == filters["marque"])
+        selected_category = normalize_category(filters.get("categorie"))
+        selected_brand = normalize_brand(filters.get("marque"))
 
         rows = q.order_by(Product.nom.asc()).all()
 
@@ -211,8 +208,8 @@ class DashboardMetricsService:
                 "id": row.id,
                 "sku": row.sku,
                 "nom": row.nom,
-                "categorie": row.categorie,
-                "marque": row.marque,
+                "categorie": normalize_category(row.categorie),
+                "marque": normalize_brand(row.marque),
                 "description": row.description,
                 "prixCout": row.prixCout,
                 "prixVente": row.prixVente,
@@ -225,6 +222,12 @@ class DashboardMetricsService:
             }
             for row in rows
         ]
+
+        if selected_category:
+            products = [p for p in products if p.get("categorie") == selected_category]
+
+        if selected_brand:
+            products = [p for p in products if p.get("marque") == selected_brand]
 
         if filters.get("statut_stock"):
             products = [

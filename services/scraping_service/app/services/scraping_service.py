@@ -3979,17 +3979,18 @@ class ScrapingService:
 
         return self.scrape_competitor(competitor).model_dump()
 
-    def scrape_due_or_all(self, competitor_id: int | None = None) -> dict:
+    def scrape_due_or_all(self, competitor_id: int | None = None, force_all: bool = False) -> dict:
         """
         Scraping catalogue automatique.
 
-        - Si competitor_id est fourni : on scrape ce concurrent immédiatement,
-          même s'il n'est pas encore dû.
-        - Si competitor_id est absent : on scrape uniquement les concurrents dus
-          selon concurrents.frequenceScrapingHeures dans stock_service.
+        La fréquence n'est plus globale. Elle est définie dans chaque concurrent
+        avec uniquement trois choix : 6h, 12h ou 24h.
 
-        Cette règle relie enfin la fréquence saisie lors de l'ajout du concurrent
-        avec le scraping automatique.
+        Règle :
+        - lancement manuel avec competitor_id : on scrape ce concurrent tout de suite ;
+        - lancement manuel sans competitor_id avec force_all=True : on scrape tous les concurrents actifs ;
+        - lancement automatique sans competitor_id : on scrape seulement les concurrents échus
+          selon concurrents.frequenceScrapingHeures et dernierScraping.
         """
         if competitor_id is not None:
             competitors = self.stock_client.get_competitors()
@@ -3998,7 +3999,16 @@ class ScrapingService:
             if not competitors:
                 raise ValueError(f"Concurrent {competitor_id} introuvable")
         else:
-            competitors = self.stock_client.get_due_competitors()
+            if force_all:
+                competitors = [
+                    c for c in self.stock_client.get_competitors()
+                    if getattr(c, "actif", True) is not False
+                ]
+            else:
+                # Sécurité : en automatique, on ne traite qu'un concurrent par run.
+                # Le scheduler rappelle ensuite cette méthode pour le concurrent suivant
+                # lorsque son heure est atteinte.
+                competitors = self.stock_client.get_due_competitors()[:1]
 
         results = []
         total_saved = 0
@@ -4030,7 +4040,7 @@ class ScrapingService:
 
         return {
             "status": "success",
-            "mode": "single_competitor" if competitor_id is not None else "due_competitors",
+            "mode": "single_competitor" if competitor_id is not None else ("all_active_competitors" if force_all else "due_competitors"),
             "concurrents_traites": len(results),
             "produits_enregistres_total": total_saved,
             "produits_matches_total": total_matched,

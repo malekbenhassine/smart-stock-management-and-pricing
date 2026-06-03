@@ -74,7 +74,6 @@ def alerts_from_event(event: AlertEventCreate) -> List[AlertCreate]:
         message = m.get("message") or "Le scraping est terminé avec succès."
         alerts = []
 
-        # Si le front envoie user_id, l'alerte est personnelle.
         if event.user_id:
             alerts.append(
                 _targeted(
@@ -88,8 +87,6 @@ def alerts_from_event(event: AlertEventCreate) -> List[AlertCreate]:
                 )
             )
 
-        # Fallback indispensable : si user_id est absent, l'alerte reste visible
-        # dans le centre d'alertes des responsables stock.
         if not event.user_id:
             alerts.append(
                 _targeted(

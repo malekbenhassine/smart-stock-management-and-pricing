@@ -282,7 +282,12 @@ def bulk_competitors(items: list[CompetitorIn], db: Session = Depends(get_db)):
         obj.url_site = normalized_site
         obj.hote_site_normalise = host
         obj.actif = bool(item.actif) if item.actif is not None else True
-        obj.frequence_scraping_heures = item.frequencescrapingheures or 24
+        # La fréquence est définie par concurrent et limitée à 6h, 12h ou 24h.
+        try:
+            raw_frequency = int(item.frequencescrapingheures or 24)
+        except Exception:
+            raw_frequency = 24
+        obj.frequence_scraping_heures = raw_frequency if raw_frequency in (6, 12, 24) else 24
         obj.dernier_scraping = item.dernierscraping
 
         # Ne pas écraser ready en pending si le concurrent était déjà découvert.

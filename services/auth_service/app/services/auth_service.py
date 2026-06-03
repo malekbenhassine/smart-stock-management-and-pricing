@@ -96,9 +96,7 @@ def get_journal_model() -> Type[Any]:
 
 
 class AuthService:
-    # =========================
-    # Accès DB direct via service
-    # =========================
+  
 
     @staticmethod
     def get_user_by_id(db: Session, user_id: int) -> User | None:
@@ -208,9 +206,7 @@ class AuthService:
             db.rollback()
             return None
 
-    # =========================
-    # Métier Auth
-    # =========================
+   
 
     @staticmethod
     def create_user_by_admin(

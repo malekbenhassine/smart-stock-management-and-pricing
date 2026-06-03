@@ -19,21 +19,7 @@ from app.services.competitor_service import (
     replace_catalog_selection_service,
     run_competitor_discovery_service,
 )
-from app.services.post_import_workflow_service import run_post_import_workflow_service
-
 router = APIRouter(tags=["competitors"])
-
-
-def _background_after_competitor_added(max_products: int = 30):
-    db = SessionLocal()
-    try:
-        run_post_import_workflow_service(
-            db=db,
-            table_name="competitor_added",
-            max_products=max_products,
-        )
-    finally:
-        db.close()
 
 
 def _background_discover_competitor(competitor_id: int):
@@ -82,12 +68,6 @@ def create_competitor(
         background_tasks.add_task(
             _background_discover_competitor,
             result["id"],
-        )
-
-        # Workflow existant conservé, mais il ne bloque plus la réponse.
-        background_tasks.add_task(
-            _background_after_competitor_added,
-            30,
         )
 
         return {

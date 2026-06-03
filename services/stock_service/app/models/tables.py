@@ -45,8 +45,6 @@ class Product(Base):
     date_validation_prix = Column("dateValidationPrix", DateTime, nullable=True)
     note_validation_prix = Column("noteValidationPrix", Text, nullable=True)
     statut = Column(String(50), nullable=True)
-    date_debut_observation = Column("dateDebutObservation", Date, nullable=True)
-    date_fin_observation = Column("dateFinObservation", Date, nullable=True)
 
 
 class DemandeModificationPrix(Base):
@@ -221,6 +219,8 @@ class Competitor(Base):
     hote_site_normalise = Column("siteHostNormalized", String(255), nullable=False, index=True)
 
     actif = Column(Boolean, default=True, nullable=False)
+    # Fréquence propre au concurrent pour le scraping automatique.
+    # Valeurs fonctionnelles autorisées : 6h, 12h ou 24h.
     frequence_scraping_heures = Column("frequenceScrapingHeures", Integer, default=24, nullable=False)
     dernier_scraping = Column("dernierScraping", DateTime, nullable=True)
 
@@ -315,3 +315,31 @@ class ProductCompetitor(Base):
     score_matching = Column("scoreMatching", Float, nullable=True)
     statut_matching = Column("statutMatching", String(50), default="IGNORED", nullable=True)
     details_matching = Column("detailsMatching", JSON, nullable=True)
+
+class ScrapingCatalogFrequencyConfig(Base):
+    """
+    Configuration minimale du scraping catalogue périodique.
+
+    On garde les jobs et l'historique détaillé dans le fichier JSON du
+    scraping_service, mais les paramètres importants sont persistés en base
+    pour éviter que la configuration redevienne inactive après un rebuild ou
+    un redémarrage Docker.
+    """
+
+    __tablename__ = "scraping_catalog_frequency_config"
+
+    id = Column(Integer, primary_key=True, default=1)
+    enabled = Column(Boolean, default=False, nullable=False)
+    # Champ conservé pour compatibilité avec l'ancien endpoint.
+    # La fréquence réelle est maintenant portée par concurrents.frequenceScrapingHeures.
+    interval_minutes = Column("intervalMinutes", Integer, default=1440, nullable=False)
+    competitor_id = Column("competitorId", Integer, nullable=True)
+    next_run_at = Column("nextRunAt", DateTime, nullable=True)
+    updated_at = Column(
+        "updatedAt",
+        DateTime,
+        default=datetime.utcnow,
+        onupdate=datetime.utcnow,
+        nullable=False,
+    )
+

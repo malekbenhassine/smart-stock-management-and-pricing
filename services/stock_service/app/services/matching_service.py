@@ -247,6 +247,12 @@ def extract_reference(text: str) -> Optional[str]:
             if len(ref) < 3:
                 continue
 
+            # Ne pas prendre une focale d'objectif pour une référence produit.
+            # Exemples : 18-45mm, 18-45, 24-70mm.
+            ref_compact = ref.replace("-", "").replace("/", "").replace(".", "")
+            if re.fullmatch(r"\d{2,5}mm", ref_compact) or re.fullmatch(r"\d{2,5}", ref_compact):
+                continue
+
             if any(re.match(excluded, ref) for excluded in excluded_patterns):
                 continue
 
@@ -278,6 +284,12 @@ def extract_model(text: str) -> Optional[str]:
     normalized = normalize_text(text)
 
     patterns = [
+        # Appareils photo Canon : EOS R50, EOS R10, EOS R100...
+        r"\b(eos\s*r\s*\d{1,3})\b",
+        r"\b(canon\s*eos\s*r\s*\d{1,3})\b",
+        # Appareils photo Sony/Nikon fréquents
+        r"\b(alpha\s*a?\d{1,2}[a-z0-9]*)\b",
+        r"\b(nikon\s*z\s*\d{1,2})\b",
         # Smartphones Samsung Galaxy : Galaxy A17 5G, Galaxy A56, Galaxy S24 Ultra...
         r"\b(galaxy\s*[asmz]?\s*\d{1,3}\s*(?:fe|ultra|plus|pro|max)?\s*(?:5g)?)\b",
         # iPhone : iPhone 15 Pro Max, iPhone 14, etc.
@@ -648,6 +660,15 @@ def _is_real_reference_candidate(value: Optional[str]) -> bool:
     if re.fullmatch(r"\d+(gb|go|tb|to)", ref):
         return False
 
+    # Éviter de prendre les objectifs comme références produit.
+    # Exemple : RF-S 18-45mm / 18-45 mm devient parfois 1845mm après normalisation.
+    # Ce n'est pas une référence unique de produit : c'est une plage focale d'objectif.
+    if re.fullmatch(r"\d{2,5}mm", ref):
+        return False
+
+    if re.fullmatch(r"\d{1,3}[-/]?\d{1,3}mm?", raw.replace(" ", "")):
+        return False
+
     return True
 
 
@@ -670,7 +691,7 @@ def _extract_reference_candidates_strict(text: Optional[str]) -> set[str]:
 
     patterns = [
         # Référence avec plusieurs blocs : 912-V812-056, X1502VA-BQ903W
-        r"\b[a-z0-9]{2,15}(?:[-/][a-z0-9]{2,15}){1,4}\b",
+        r"\b[a-z0-9]{2,15}(?:[-/.][a-z0-9]{2,15}){1,4}\b",
 
         # Référence lettres + chiffres : XPAW021, APPLE176, SSD7CS900
         r"\b[a-z]{2,12}\d{2,8}[a-z0-9]{0,8}\b",
@@ -768,6 +789,15 @@ def compute_match_score(
         for keyword in early_smartphone_keywords
     )
 
+    early_camera_keywords = [
+        "appareil photo", "camera", "hybride", "eos", "objectif", "rf-s", "rfs",
+        "canon", "nikon", "sony", "fujifilm",
+    ]
+    early_is_camera = any(
+        keyword in early_internal_text or keyword in early_competitor_text
+        for keyword in early_camera_keywords
+    )
+
     early_same_model = (
         _same(internal_features.get("modele"), competitor_features.get("modele"))
         or _similar(internal_features.get("modele"), competitor_features.get("modele"), 88)
@@ -787,6 +817,11 @@ def compute_match_score(
             reasons.append(
                 "Références/SKU différents, mais smartphone avec même modèle détecté. "
                 "Comparaison poursuivie sur RAM, stockage et couleur."
+            )
+        elif early_is_camera and early_same_model:
+            reasons.append(
+                "Références/SKU différents, mais appareil photo avec même modèle détecté. "
+                "Comparaison poursuivie sur la marque, le modèle et l'objectif."
             )
         else:
             reasons.append(
@@ -1096,7 +1131,71 @@ def compute_match_score(
             return float(final_score), details
 
     # ============================================================
-    # 5.bis Cas spécial smartphones
+    # 5.bis Cas spécial appareils photo / appareils hybrides
+    # ============================================================
+    # Les sites marchands utilisent souvent des SKU internes différents
+    # pour le même boîtier + objectif : PHO-EOS-R50-18.45, 5811C035AA,
+    # PHO-EOS-R50-WH... On ne doit donc pas rejeter uniquement sur le SKU
+    # si le modèle Canon EOS est identique. En revanche EOS R10 ≠ EOS R50.
+    # ============================================================
+
+    camera_keywords = [
+        "appareil photo", "camera", "hybride", "eos", "objectif", "rf-s", "rfs",
+        "canon", "nikon", "sony", "fujifilm",
+    ]
+
+    is_camera = any(
+        keyword in internal_text or keyword in competitor_text
+        for keyword in camera_keywords
+    )
+
+    internal_color = internal_features.get("couleur")
+    competitor_color = competitor_features.get("couleur")
+    same_color = _same(internal_color, competitor_color)
+
+    if is_camera and same_brand and same_model:
+        if internal_color and competitor_color and not same_color:
+            final_score = max(72, min(88, max(name_score, feature_score)))
+            match_type = "MEDIUM_CONFIDENCE"
+            same_product = False
+            status = "MANUAL_REVIEW"
+
+            reasons.append(
+                "Appareil photo proche : même marque et même modèle, "
+                "mais couleur/variante différente. Vérification manuelle requise."
+            )
+        else:
+            final_score = max(88, name_score, feature_score)
+            match_type = "HIGH_CONFIDENCE"
+            same_product = True
+            status = "MATCHED"
+
+            reasons.append(
+                "Appareil photo confirmé : même marque et même modèle Canon EOS détectés. "
+                "Les différences de SKU marchand ne bloquent pas le matching."
+            )
+
+        details = {
+            "same_product": same_product,
+            "sameProduct": same_product,
+            "score": round(float(final_score), 2),
+            "match_type": match_type,
+            "matchType": match_type,
+            "status": status,
+            "reasons": reasons,
+            "nameScore": name_score,
+            "descriptionScore": description_score,
+            "featuresScore": feature_score,
+            "internalFeatures": internal_features,
+            "competitorFeatures": competitor_features,
+            "featuresDetails": feature_details,
+            "criticalMismatches": [],
+        }
+
+        return round(float(final_score), 2), details
+
+    # ============================================================
+    # 5.ter Cas spécial smartphones
     # ============================================================
     # Important : ce bloc doit rester EN DEHORS du bloc Mibro.
     # Sinon il ne s'exécute jamais pour Samsung, iPhone, Xiaomi, etc.

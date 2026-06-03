@@ -116,7 +116,7 @@ def _background_scrape_after_product_creation(product_id: int):
             return
 
         product.analyse_concurrentielle_statut = "RUNNING"
-        product.analyse_concurrentielle_date = None
+        product.analyse_concurrentielle_date = None #datetime.utcnow()
 
         if hasattr(product, "statut_prix") and product.statut_prix != "PRIX_VALIDE":
             product.statut_prix = "EN_ATTENTE_PRICING"
@@ -166,7 +166,8 @@ def create_product(
     db: Session = Depends(get_db),
 ):
     product = create_product_service(payload, db)
-
+    product.pop("dateDebutObservation", None)
+    product.pop("dateFinObservation", None)
     db_product = db.query(Product).filter(Product.id == product["id"]).first()
     if db_product:
         db_product.analyse_concurrentielle_statut = "RUNNING"
@@ -244,11 +245,6 @@ def bulk_import_products(items: list[ProductIn], db: Session = Depends(get_db)):
         obj.seuil_max = item.seuilmax if item.seuilmax is not None else 0
         obj.seuil_min = item.seuilmin if item.seuilmin is not None else 0
         obj.statut = item.statut or "ACTIF"
-
-        if hasattr(obj, "date_debut_observation"):
-            obj.date_debut_observation = item.datedebutobservation
-        if hasattr(obj, "date_fin_observation"):
-            obj.date_fin_observation = item.datefinobservation
 
         if hasattr(obj, "statut_prix") and obj.statut_prix != "PRIX_VALIDE":
             obj.statut_prix = item.statutprix or "EN_ATTENTE_PRICING"

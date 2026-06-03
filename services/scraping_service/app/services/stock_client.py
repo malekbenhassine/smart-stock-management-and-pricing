@@ -12,6 +12,45 @@ class StockServiceClient:
         self.session = requests.Session()
         self.session.headers.update({"Accept": "application/json"})
 
+
+
+    def get_catalog_frequency_config(self) -> dict | None:
+        """
+        Lit la configuration minimale du scraping catalogue depuis stock_service.
+        Cette configuration est persistée en base de données côté stock_service.
+        """
+        response = self.session.get(
+            f"{self.base_url}/internal/scraping-config/catalog-frequency",
+            timeout=(5, 20),
+        )
+
+        if response.status_code == 404:
+            return None
+
+        response.raise_for_status()
+        data = response.json()
+        return data if isinstance(data, dict) else None
+
+    def save_catalog_frequency_config(self, config: dict) -> dict:
+        """
+        Sauvegarde uniquement les champs nécessaires à la reprise automatique :
+        enabled, interval_minutes, competitor_id et next_run_at.
+        """
+        payload = {
+            "enabled": bool(config.get("enabled")),
+            "interval_minutes": int(config.get("interval_minutes") or 1440),
+            "competitor_id": config.get("competitor_id"),
+            "next_run_at": config.get("next_run_at"),
+        }
+
+        response = self.session.put(
+            f"{self.base_url}/internal/scraping-config/catalog-frequency",
+            json=payload,
+            timeout=(5, 20),
+        )
+        response.raise_for_status()
+        return response.json()
+
     def _competitors_from_response(self, data) -> List[CompetitorModel]:
         if isinstance(data, dict):
             raw_items = (

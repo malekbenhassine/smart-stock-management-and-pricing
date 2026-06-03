@@ -301,6 +301,9 @@ def run_post_import_workflow_service(
         return result
 
     if table_name in ("competitor_added", "concurrent_added"):
+        # Ajout d'un concurrent = configuration + découverte des catalogues seulement.
+        # On ne lance plus de scraping produit ici, car chaque concurrent doit partir
+        # selon sa propre fréquence (6h, 12h ou 24h), pas immédiatement après l'ajout.
         discovery_result = _discover_pending_competitors(
             db=db,
             client=client,
@@ -309,18 +312,13 @@ def run_post_import_workflow_service(
         result["competitors_discovered"] += discovery_result["competitors_discovered"]
         result["competitors_failed"] += discovery_result["competitors_failed"]
         result["details"].extend(discovery_result["details"])
-
-        scan_result = _scan_recent_products(
-            db=db,
-            client=client,
-            max_products=max_products,
-            product_ids=product_ids,
+        result["total_products_to_scan"] = 0
+        result["products_scanned"] = 0
+        result["products_failed"] = 0
+        result["message"] = (
+            "Concurrent ajouté : aucune analyse produit lancée automatiquement. "
+            "Le scraping catalogue suivra la fréquence du concurrent."
         )
-
-        result["total_products_to_scan"] = scan_result["products_to_scan"]
-        result["products_scanned"] += scan_result["products_scanned"]
-        result["products_failed"] += scan_result["products_failed"]
-        result["details"].extend(scan_result["details"])
 
         return result
 

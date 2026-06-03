@@ -1,21 +1,11 @@
 from datetime import date, datetime
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from typing import Literal, Optional
+from app.services.product_normalization import normalize_brand, normalize_category
 
 
 class ProductIn(BaseModel):
-    """
-    Schéma utilisé par /products/bulk.
-
-    Correction mapping import :
-    - accepte les noms standards du backend : stockdisponible, prixvente...
-    - accepte les noms camelCase du modèle Produit : stockDisponible, prixVente...
-    - accepte les noms alternatifs venant des fichiers CSV/JSON : reference, designation,
-      famille_produit, prix_achat, quantite_disponible, stock_alerte...
-
-    Important : on garde les anciens champs internes en minuscules pour ne pas casser
-    products.py qui utilise item.prixvente, item.stockdisponible, etc.
-    """
+  
 
     model_config = ConfigDict(populate_by_name=True, extra="ignore")
 
@@ -37,8 +27,6 @@ class ProductIn(BaseModel):
     seuilmin: Optional[int] = None
 
     statut: Optional[str] = None
-    datedebutobservation: Optional[date] = None
-    datefinobservation: Optional[date] = None
     analyseconcurrentiellestatut: Optional[str] = None
     statutprix: Optional[str] = None
 
@@ -84,12 +72,20 @@ class ProductIn(BaseModel):
 
         # Statuts / dates
         put("statut", "statut", "etat_produit", "etat", "status")
-        put("datedebutobservation", "datedebutobservation", "dateDebutObservation", "date_debut_observation", "observation_start_date")
-        put("datefinobservation", "datefinobservation", "dateFinObservation", "date_fin_observation", "observation_end_date")
         put("analyseconcurrentiellestatut", "analyseconcurrentiellestatut", "analyseConcurrentielleStatut", "analyse_concurrentielle_statut")
         put("statutprix", "statutprix", "statutPrix", "statut_prix")
 
         return result
+
+    @field_validator("categorie", mode="before")
+    @classmethod
+    def normalize_import_category(cls, value):
+        return normalize_category(value)
+
+    @field_validator("marque", mode="before")
+    @classmethod
+    def normalize_import_brand(cls, value):
+        return normalize_brand(value)
 
     @field_validator(
         "prixcout",
@@ -258,7 +254,16 @@ class ProductCreate(BaseModel):
     seuilMax: Optional[int] = None
     seuilMin: Optional[int] = None
     statut: Optional[str] = None
-    
+
+    @field_validator("categorie", mode="before")
+    @classmethod
+    def normalize_create_category(cls, value):
+        return normalize_category(value)
+
+    @field_validator("marque", mode="before")
+    @classmethod
+    def normalize_create_brand(cls, value):
+        return normalize_brand(value)
 
 
 class ProductUpdate(BaseModel):
@@ -276,7 +281,16 @@ class ProductUpdate(BaseModel):
     seuilMax: Optional[int] = None
     seuilMin: Optional[int] = None
     statut: Optional[str] = None
-    
+
+    @field_validator("categorie", mode="before")
+    @classmethod
+    def normalize_update_category(cls, value):
+        return normalize_category(value)
+
+    @field_validator("marque", mode="before")
+    @classmethod
+    def normalize_update_brand(cls, value):
+        return normalize_brand(value)
 
 
 class ProductPriceUpdate(BaseModel):

@@ -24,8 +24,9 @@ class ProductScheduleCreate(BaseModel):
 
 class CatalogFrequencyConfig(BaseModel):
     enabled: bool = True
-    # 3 heures minimum = 180 minutes.
-    interval_minutes: int = Field(default=180, ge=180)
+    # Conservé pour compatibilité avec l'ancien front.
+    # La fréquence réelle du scraping automatique est définie au niveau du concurrent : 6h, 12h ou 24h.
+    interval_minutes: int = Field(default=1440, ge=1)
     competitor_id: Optional[int] = None
 
 
@@ -60,8 +61,13 @@ class CompetitorModel(BaseModel):
     site_url: Optional[str] = None
     site_host_normalized: Optional[str] = None
     actif: bool = True
+    # Fréquence propre au concurrent : 6h, 12h ou 24h.
     frequence_scraping_heures: int = 24
     dernier_scraping: Optional[str] = None
+    created_at: Optional[str] = None
+    date_creation: Optional[str] = None
+    prochain_scraping: Optional[str] = None
+    next_scraping_at: Optional[str] = None
     discovery_status: str = "pending"
     auto_keywords: List[str] = Field(default_factory=list)
     selectors_override: Dict[str, Any] = Field(default_factory=dict)

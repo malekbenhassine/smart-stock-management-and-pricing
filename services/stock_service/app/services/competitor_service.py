@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any
 from urllib.parse import urlparse, urlunparse
 
@@ -48,21 +48,69 @@ def normalize_catalog_url(raw_url: str) -> str:
     return urlunparse((scheme, host, path, "", "", ""))
 
 
-MIN_SCRAPING_FREQUENCY_HOURS = 3
-MAX_SCRAPING_FREQUENCY_HOURS = 168
+ALLOWED_SCRAPING_FREQUENCY_HOURS = {6, 12, 24}
+DEFAULT_SCRAPING_FREQUENCY_HOURS = 24
 
 
-def _normalize_frequency_hours(value: Any, default: int = MIN_SCRAPING_FREQUENCY_HOURS) -> int:
+def _normalize_frequency_hours(value: Any, default: int = DEFAULT_SCRAPING_FREQUENCY_HOURS) -> int:
     try:
         number = int(value)
     except Exception:
         number = default
 
-    return max(MIN_SCRAPING_FREQUENCY_HOURS, min(MAX_SCRAPING_FREQUENCY_HOURS, number))
+    if number not in ALLOWED_SCRAPING_FREQUENCY_HOURS:
+        raise ValueError("La fréquence de scraping doit être 6h, 12h ou 24h.")
+
+    return number
 
 
 def _dt(value: Any) -> str | None:
-    return value.isoformat() if value else None
+    """
+    Sérialise les dates concurrent stockées en UTC.
+
+    Les colonnes de ce service utilisent datetime.utcnow() et SQLAlchemy
+    retourne des datetimes naïfs. Sans timezone dans la réponse API, le
+    navigateur les interprète comme des heures locales, ce qui affiche une
+    heure de moins en Tunisie. On ajoute donc le suffixe Z pour indiquer au
+    front que ces valeurs sont en UTC.
+    """
+    if not value:
+        return None
+
+    if isinstance(value, datetime):
+        dt = value
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        else:
+            dt = dt.astimezone(timezone.utc)
+
+        return dt.isoformat(timespec="seconds").replace("+00:00", "Z")
+
+    return str(value)
+
+
+def _next_scraping_datetime(obj: Competitor) -> datetime | None:
+    """
+    Calcule l'heure de prochain scraping du concurrent.
+
+    Règle métier :
+    - si le concurrent a déjà été scrapé : dernierScraping + fréquence ;
+    - si le concurrent vient d'être créé et n'a jamais été scrapé : createdAt + fréquence.
+
+    Ainsi, l'ajout d'un concurrent ne déclenche plus automatiquement
+    un scraping immédiat.
+    """
+    if not obj.actif:
+        return None
+
+    frequency = _normalize_frequency_hours(obj.frequence_scraping_heures)
+    base_datetime = obj.dernier_scraping or obj.date_creation or datetime.utcnow()
+    return base_datetime + timedelta(hours=frequency)
+
+
+def _next_scraping_at(obj: Competitor) -> str | None:
+    next_datetime = _next_scraping_datetime(obj)
+    return _dt(next_datetime) if next_datetime else None
 
 
 def _as_list(value: Any) -> list:
@@ -302,7 +350,10 @@ def _serialize_competitor(obj: Competitor) -> dict:
         "site_host_normalized": obj.hote_site_normalise,
         "actif": obj.actif,
         "frequence_scraping_heures": obj.frequence_scraping_heures,
+        "frequence_scraping_label": f"Toutes les {obj.frequence_scraping_heures} h",
         "dernier_scraping": _dt(obj.dernier_scraping),
+        "prochain_scraping": _next_scraping_at(obj),
+        "next_scraping_at": _next_scraping_at(obj),
         "discovery_status": obj.statut_decouverte,
         "last_discovery_at": _dt(obj.date_derniere_decouverte),
         "last_discovery_error": obj.erreur_derniere_decouverte,
@@ -642,18 +693,18 @@ def due_competitors_service(db: Session):
     ).all()
 
     now = datetime.utcnow()
-    due = []
+    due_rows: list[tuple[datetime, Competitor]] = []
 
     for c in rows:
-        if c.dernier_scraping is None:
-            due.append(_serialize_competitor(c))
-            continue
+        next_time = _next_scraping_datetime(c)
+        if next_time and next_time <= now:
+            due_rows.append((next_time, c))
 
-        next_time = c.dernier_scraping + timedelta(hours=_normalize_frequency_hours(c.frequence_scraping_heures))
-        if next_time <= now:
-            due.append(_serialize_competitor(c))
-
-    return due
+    # Ordre important : si plusieurs concurrents sont en retard,
+    # le scraping automatique doit traiter le plus ancien d'abord,
+    # mais pas les lancer tous dans le même run.
+    due_rows.sort(key=lambda item: item[0])
+    return [_serialize_competitor(c) for _, c in due_rows]
 
 
 def update_last_scraping_service(competitor_id: int, db: Session):
@@ -667,7 +718,7 @@ def update_last_scraping_service(competitor_id: int, db: Session):
     return {
         "status": "updated",
         "competitor_id": competitor_id,
-        "dernier_scraping": obj.dernier_scraping.isoformat(),
+        "dernier_scraping": _dt(obj.dernier_scraping),
     }
 
 

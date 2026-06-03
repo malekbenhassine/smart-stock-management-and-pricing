@@ -14,6 +14,7 @@ from .api.routes.stock_movements import router as stock_movements_router
 from .api.routes.import_workflows import router as import_workflows_router
 from .api.routes.dashboard import router as dashboard_router
 from .api.routes.manager import router as manager_router
+from .api.routes.scraping_config import router as scraping_config_router
 
 app = FastAPI(title="stock-service")
 
@@ -46,3 +47,4 @@ app.include_router(stock_movements_router)
 app.include_router(import_workflows_router)
 app.include_router(dashboard_router)
 app.include_router(manager_router)
+app.include_router(scraping_config_router)

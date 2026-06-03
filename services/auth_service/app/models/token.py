@@ -25,6 +25,8 @@ class Token(Base):
 
     utilisateur = relationship("User", back_populates="jetons")
 
+
+
     @property
     def user_id(self):
         return self.utilisateur_id

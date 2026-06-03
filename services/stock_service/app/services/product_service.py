@@ -38,8 +38,6 @@ def serialize_product(p: Product) -> dict:
         "seuilMin": p.seuil_min,
         "seuilMax": p.seuil_max,
         "statut": p.statut,
-        "dateDebutObservation": p.date_debut_observation,
-        "dateFinObservation": p.date_fin_observation,
         "analyseConcurrentielleStatut": getattr(p, "analyse_concurrentielle_statut", None),
         "analyseConcurrentielleDate": getattr(p, "analyse_concurrentielle_date", None),
         "statutPrix": getattr(p, "statut_prix", None) or STATUT_PRIX_EN_ATTENTE,
@@ -391,6 +389,7 @@ def create_product_service(payload, db: Session):
     initial_stock = _safe_int(obj.stock_disponible, 0)
 
     if initial_stock > 0:
+        #si stock initial > 0, on enregistre un mouvement de stock de type entrée pour tracer l'origine du stock et permettre les analyses futures basées sur les mouvements de stock.
         record_stock_trace_only(
             db=db,
             produit_id=obj.id,
@@ -433,8 +432,6 @@ def update_product_service(product_id: int, payload, db: Session):
         "seuilMax": "seuil_max",
         "seuilMin": "seuil_min",
         "statut": "statut",
-        "dateDebutObservation": "date_debut_observation",
-        "dateFinObservation": "date_fin_observation",
     }
 
     for key, value in data.items():
